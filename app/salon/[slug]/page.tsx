@@ -395,16 +395,10 @@ export default function SalonLanding() {
         .usluga-card{cursor:pointer;background:#161616;border:0.5px solid rgba(212,175,55,.15);border-radius:16px;padding:20px;transition:all .3s}
         .usluga-card:hover{border-color:rgba(212,175,55,.4);transform:translateY(-2px)}
         .usluga-active{border-color:#d4af37!important;background:rgba(212,175,55,.08)!important}
-        .mobile-only{display:none}
-        .profile-tabs{display:flex}
-        .client-auth-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
         @media(max-width:768px){
           .hero-section{padding:40px 20px!important}
           .hero-title{font-size:28px!important}
           .content-pad{padding:0 20px 40px!important}
-          .profile-tabs{flex-wrap:wrap}
-          .mobile-only{display:inline-flex}
-          .client-auth-grid{grid-template-columns:1fr!important}
           .usluge-grid{grid-template-columns:1fr!important}
           .forma-grid{grid-template-columns:1fr!important}
         }
@@ -430,10 +424,9 @@ export default function SalonLanding() {
 
       <div className="content-pad" style={{ maxWidth: '900px', margin: '0 auto', padding: '0 48px 60px' }}>
         <div style={{ marginTop: '20px', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
-          <div className="profile-tabs" style={{ gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
               onClick={() => setMobileMenuOpen((prev) => !prev)}
-              className="mobile-only"
               style={{ background: '#141414', color: '#f5f0e8', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 10px', fontSize: '13px', cursor: 'pointer' }}
             >
               ☰ Meni
@@ -485,7 +478,7 @@ export default function SalonLanding() {
                 <button onClick={() => setClientAuthMode('signup')} style={{ background: clientAuthMode === 'signup' ? goldFaint : 'transparent', color: clientAuthMode === 'signup' ? gold : 'rgba(245,240,232,.6)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}>Kreiraj nalog</button>
                 <button onClick={() => setClientAuthMode('login')} style={{ background: clientAuthMode === 'login' ? goldFaint : 'transparent', color: clientAuthMode === 'login' ? gold : 'rgba(245,240,232,.6)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}>Prijava</button>
               </div>
-              <div className="client-auth-grid" style={{ marginBottom: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                 {clientAuthMode === 'signup' && (
                   <input style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Ime i prezime" value={clientForma.ime} onChange={e => setClientForma({ ...clientForma, ime: e.target.value })} />
                 )}

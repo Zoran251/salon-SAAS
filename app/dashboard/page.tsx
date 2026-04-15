@@ -728,17 +728,13 @@ export default function Dashboard() {
         .nav-item{cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;transition:all .2s;font-size:14px;color:rgba(245,240,232,.5);border:0.5px solid transparent}
         .nav-item:hover{background:rgba(212,175,55,.06);color:rgba(245,240,232,.8)}
         .nav-item.active{background:rgba(212,175,55,.12);color:#d4af37;border-color:rgba(212,175,55,.2)}
-        .tab-item{cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 6px;min-width:68px;font-size:10px;color:rgba(245,240,232,.4);transition:color .2s;text-align:center}
+        .tab-item{cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;flex:1;font-size:9px;color:rgba(245,240,232,.4);transition:color .2s;text-align:center}
         .tab-item.active{color:#d4af37}
         @media(min-width:769px){.mobile-tabs{display:none!important}}
         @media(max-width:768px){
           .sidebar{display:none!important}
           .mobile-tabs{display:flex!important}
           .dash-content{padding:16px!important;padding-bottom:90px!important}
-        }
-        @media(max-width:420px){
-          .tab-item span:last-child{font-size:8px}
-          .mobile-tabs{overflow-x:auto;justify-content:flex-start}
         }
       `}</style>
 

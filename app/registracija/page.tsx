@@ -81,13 +81,10 @@ export default function Registracija() {
         .submit-btn{width:100%;padding:16px;border-radius:16px;background:linear-gradient(135deg,#d4af37,#b8960c);color:#0a0a0a;font-size:16px;font-weight:600;cursor:pointer;border:none;font-family:sans-serif;transition:opacity .3s}
         .submit-btn:disabled{opacity:.6;cursor:not-allowed}
         .back-btn{background:none;border:0.5px solid rgba(245,240,232,.15);color:rgba(245,240,232,.5);padding:14px;border-radius:16px;cursor:pointer;font-size:14px;font-family:sans-serif;width:100%}
-        @media(max-width:768px){
-          .reg-card{padding:28px 20px!important;margin:16px!important}
-          .reg-nav{padding:14px 20px!important}
-        }
+        @media(max-width:768px){.reg-card{padding:28px 20px!important;margin:16px!important}}
       `}</style>
 
-      <nav className="reg-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 48px', borderBottom: '0.5px solid rgba(212,175,55,.2)', background: 'rgba(10,10,10,.97)', position: 'sticky', top: 0, zIndex: 100 }}>
+      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 48px', borderBottom: '0.5px solid rgba(212,175,55,.2)', background: 'rgba(10,10,10,.97)', position: 'sticky', top: 0, zIndex: 100 }}>
         <Link href="/" style={{ fontSize: '22px', fontWeight: 500, background: 'linear-gradient(90deg,#d4af37,#f5e17a,#d4af37)', backgroundSize: '200% auto', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', animation: 'shimmer 3s linear infinite', textDecoration: 'none' }}>SalonPro</Link>
         <Link href="/login" style={{ fontSize: '14px', color: 'rgba(245,240,232,.5)', textDecoration: 'none' }}>Već imam nalog <span style={{ color: '#d4af37' }}>→</span></Link>
       </nav>
