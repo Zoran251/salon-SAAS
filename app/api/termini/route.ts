@@ -1,12 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { getPublicSupabaseEnv } from '@/lib/env-supabase'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 function getServerSupabaseClient() {
-  if (!supabaseUrl) return null
+  const { url: supabaseUrl, anonKey: supabaseAnonKey, ok } = getPublicSupabaseEnv()
+  if (!ok) return null
 
   // Preferred for public booking: bypasses RLS in a controlled server route.
   const key = supabaseServiceRoleKey || supabaseAnonKey

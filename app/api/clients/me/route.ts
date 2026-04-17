@@ -1,19 +1,20 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { getPublicSupabaseEnv } from '@/lib/env-supabase'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 function getAnonClient() {
-  if (!supabaseUrl || !supabaseAnonKey) return null
+  const { url: supabaseUrl, anonKey: supabaseAnonKey, ok } = getPublicSupabaseEnv()
+  if (!ok) return null
   return createClient(supabaseUrl, supabaseAnonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 }
 
 function getServiceClient() {
-  if (!supabaseUrl || !supabaseServiceRoleKey) return null
+  const { url: supabaseUrl, ok } = getPublicSupabaseEnv()
+  if (!ok || !supabaseServiceRoleKey) return null
   return createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })

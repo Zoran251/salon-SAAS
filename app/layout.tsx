@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { getPublicSupabaseEnv } from "@/lib/env-supabase";
 import "./globals.css";
+
+/** Svaki zahtjev dobija svjež process.env s Vercela; injektuje Supabase u browser bez oslanjanja samo na NEXT_PUBLIC u starom bundleu. */
+export const dynamic = "force-dynamic";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,11 +26,20 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { url, anonKey } = getPublicSupabaseEnv();
+  const supabaseBootstrap = JSON.stringify({ url, anonKey });
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__SALON_SUPABASE__=${supabaseBootstrap};`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

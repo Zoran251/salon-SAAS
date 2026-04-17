@@ -1,6 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
-
-type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { getPublicSupabaseEnv } from '@/lib/env-supabase'
 
 export type Database = {
   public: {
@@ -149,25 +148,17 @@ export type Database = {
   }
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-const hasConfig = Boolean(supabaseUrl && supabaseKey)
-
-// Lokalni dev: jasna greška ako .env.local nije postavljen.
-// Production build (npr. Vercel prije dodavanja env varijabli): ne bacamo — inače padne prerender /dashboard.
-if (process.env.NODE_ENV === 'development' && !hasConfig) {
-  throw new Error('Nedostaju Supabase env varijable: NEXT_PUBLIC_SUPABASE_URL i NEXT_PUBLIC_SUPABASE_ANON_KEY')
+declare global {
+  interface Window {
+    __SALON_SUPABASE__?: { url: string; anonKey: string }
+  }
 }
 
-const url = hasConfig ? supabaseUrl! : 'https://placeholder.supabase.co'
-const key = hasConfig
-  ? supabaseKey!
-  : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.build-without-env-placeholder'
+const PLACEHOLDER_URL = 'https://placeholder.supabase.co'
+const PLACEHOLDER_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.build-without-env-placeholder'
 
-/** True kada su NEXT_PUBLIC_SUPABASE_* postavljene u trenutnom bundleu (npr. nakon Vercel deploya s env varijablama). */
-export const isSupabaseConfigured = hasConfig
-
-export const supabase = createClient<Database>(url, key, {
+const clientOptions = {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -177,5 +168,65 @@ export const supabase = createClient<Database>(url, key, {
     headers: {
       'X-Client-Info': 'salon-saas-web',
     },
+  },
+} as const
+
+function resolveBrowserConfig(): { url: string; key: string } {
+  if (typeof window !== 'undefined') {
+    const inj = window.__SALON_SUPABASE__
+    if (inj?.url && inj?.anonKey) {
+      return { url: inj.url, key: inj.anonKey }
+    }
+  }
+  const { url, anonKey, ok } = getPublicSupabaseEnv()
+  if (ok) return { url, key: anonKey }
+  const u = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const k = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (u && k) return { url: u, key: k }
+  return { url: PLACEHOLDER_URL, key: PLACEHOLDER_KEY }
+}
+
+let browserClient: SupabaseClient<Database> | null = null
+
+function getSupabaseInternal(): SupabaseClient<Database> {
+  if (typeof window === 'undefined') {
+    const { url, anonKey, ok } = getPublicSupabaseEnv()
+    if (!ok) {
+      return createClient<Database>(PLACEHOLDER_URL, PLACEHOLDER_KEY, {
+        auth: { persistSession: false },
+      })
+    }
+    return createClient<Database>(url, anonKey, {
+      auth: { persistSession: false },
+      global: clientOptions.global,
+    })
+  }
+  if (!browserClient) {
+    const cfg = resolveBrowserConfig()
+    browserClient = createClient<Database>(cfg.url, cfg.key, clientOptions)
+  }
+  return browserClient
+}
+
+if (process.env.NODE_ENV === 'development' && !getPublicSupabaseEnv().ok) {
+  throw new Error(
+    'Nedostaju Supabase env varijable: NEXT_PUBLIC_SUPABASE_URL i NEXT_PUBLIC_SUPABASE_ANON_KEY (ili SUPABASE_URL i SUPABASE_ANON_KEY u .env.local)',
+  )
+}
+
+/** True nakon što layout injektuje window.__SALON_SUPABASE__ ili ako su NEXT_PUBLIC varijable u bundleu. */
+export function isSupabaseConfigured(): boolean {
+  if (typeof window !== 'undefined') {
+    const inj = window.__SALON_SUPABASE__
+    if (inj?.url && inj?.anonKey) return true
+  }
+  return getPublicSupabaseEnv().ok
+}
+
+export const supabase = new Proxy({} as SupabaseClient<Database>, {
+  get(_target, prop, _receiver) {
+    const client = getSupabaseInternal()
+    const value = Reflect.get(client, prop, client)
+    return typeof value === 'function' ? value.bind(client) : value
   },
 })

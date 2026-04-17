@@ -140,7 +140,7 @@ export default function Registracija() {
                 <h1 style={{ fontSize: '26px', fontWeight: 500, color: '#f5f0e8', marginBottom: '8px' }}>Kreiraj tvoj salon</h1>
                 <p style={{ fontSize: '14px', color: 'rgba(245,240,232,.4)', lineHeight: 1.6 }}>Ovi podaci će biti prikazani na tvojoj landing page.</p>
               </div>
-              {!isSupabaseConfigured && (
+              {!isSupabaseConfigured() && (
                 <div style={{ background: 'rgba(212,175,55,.08)', border: '0.5px solid rgba(212,175,55,.35)', borderRadius: '12px', padding: '14px 16px', marginBottom: '20px', fontSize: '13px', color: 'rgba(245,240,232,.85)', lineHeight: 1.6 }}>
                   Aplikacija na ovom okruženju nema Supabase adresu u buildu. U Vercel dodaj <code style={{ color: '#d4af37' }}>NEXT_PUBLIC_SUPABASE_URL</code> i <code style={{ color: '#d4af37' }}>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, pa ponovo deploy.
                 </div>
