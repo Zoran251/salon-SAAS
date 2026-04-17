@@ -11,7 +11,7 @@ export async function authPasswordViaApi(
   action: AuthPasswordAction,
   email: string,
   password: string,
-): Promise<{ error: string | null; userId: string | null }> {
+): Promise<{ error: string | null; userId: string | null; serverReturnedSession: boolean }> {
   let res: Response
   try {
     res = await fetch('/api/auth/password', {
@@ -20,7 +20,11 @@ export async function authPasswordViaApi(
       body: JSON.stringify({ action, email, password }),
     })
   } catch {
-    return { error: 'Mrežna greška (Failed to fetch). Provjeri internet ili probaj kasnije.', userId: null }
+    return {
+      error: 'Mrežna greška (Failed to fetch). Provjeri internet ili probaj kasnije.',
+      userId: null,
+      serverReturnedSession: false,
+    }
   }
 
   const json = (await res.json()) as {
@@ -33,8 +37,10 @@ export async function authPasswordViaApi(
   }
 
   if (!res.ok) {
-    return { error: json.error || `Greška ${res.status}`, userId: null }
+    return { error: json.error || `Greška ${res.status}`, userId: null, serverReturnedSession: false }
   }
+
+  const serverReturnedSession = Boolean(json.session)
 
   if (json.session) {
     const { error } = await supabase.auth.setSession({
@@ -42,9 +48,9 @@ export async function authPasswordViaApi(
       refresh_token: json.session.refresh_token,
     })
     if (error) {
-      return { error: error.message, userId: json.user?.id ?? null }
+      return { error: error.message, userId: json.user?.id ?? null, serverReturnedSession: true }
     }
   }
 
-  return { error: null, userId: json.user?.id ?? null }
+  return { error: null, userId: json.user?.id ?? null, serverReturnedSession }
 }

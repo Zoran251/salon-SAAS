@@ -43,9 +43,8 @@ export default function Registracija() {
         return
       }
 
-      const { data: { session } } = await supabase.auth.getSession()
-
-      if (!session) {
+      // Ne oslanjati se na getSession() odmah poslije setSession — često je null iako server ima sesiju.
+      if (!r.serverReturnedSession) {
         const res2 = await fetch('/api/salon/register-initial', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -70,6 +69,24 @@ export default function Registracija() {
           return
         }
         setKorak(3)
+        setLoading(false)
+        return
+      }
+
+      // Server je vratio tokene — kratko čekaj da lokalna sesija bude spremna.
+      let sessionReady = false
+      for (let i = 0; i < 8; i++) {
+        const { data: s } = await supabase.auth.getSession()
+        if (s.session) {
+          sessionReady = true
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 80))
+      }
+      if (!sessionReady) {
+        setGreska(
+          'Sesija nije sačuvana u pregledniku (kolačići / privatni mod). Dozvoli storage za ovaj sajt ili probaj drugi preglednik.',
+        )
         setLoading(false)
         return
       }

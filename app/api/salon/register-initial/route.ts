@@ -34,13 +34,26 @@ export async function POST(request: Request) {
     const grad = typeof body.grad === 'string' ? body.grad : ''
     const tip = typeof body.tip === 'string' ? body.tip : ''
 
-    if (!userId || !naziv || !email) {
+    const uid = typeof userId === 'string' ? userId.trim() : ''
+    if (!uid || !naziv || !email) {
       return NextResponse.json({ error: 'Nedostaju obavezni podaci.' }, { status: 400 })
     }
 
-    const { data: authUser, error: authErr } = await admin.auth.admin.getUserById(userId)
-    if (authErr || !authUser.user) {
-      return NextResponse.json({ error: 'Korisnik nije pronađen u Auth.' }, { status: 400 })
+    // Nakon signUp korisnik ponekad nije odmah vidljiv u Admin API — nekoliko pokušaja.
+    let lastAuthErr: { message: string } | null = null
+    let found = false
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { data, error: authErr } = await admin.auth.admin.getUserById(uid)
+      lastAuthErr = authErr
+      if (!authErr && data?.user) {
+        found = true
+        break
+      }
+      await new Promise((r) => setTimeout(r, 180 * (attempt + 1)))
+    }
+    if (!found && lastAuthErr) {
+      // I dalje nastavi s insertom — ako postoji FK ka auth.users, baza će vratiti jasnu grešku.
+      console.warn('[register-initial] getUserById nakon retry:', lastAuthErr.message)
     }
 
     const baseSlug = fallbackSalonSlug(buildSalonSlug(naziv))
@@ -54,7 +67,7 @@ export async function POST(request: Request) {
     }
 
     const { error: insErr } = await admin.from('saloni').insert({
-      id: userId,
+      id: uid,
       naziv,
       slug,
       email,
