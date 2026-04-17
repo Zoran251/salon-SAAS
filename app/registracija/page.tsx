@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
+import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { buildSalonSlug, fallbackSalonSlug } from '@/lib/slug'
 
 const tipovi = ['Frizerski salon', 'Kozmetički salon', 'Salon za nokte', 'Spa / Wellness', 'Barbershop', 'Drugo']
@@ -17,6 +17,14 @@ export default function Registracija() {
     setGreska('')
   }
 
+  const formatAuthError = (message: string) => {
+    const m = message.toLowerCase()
+    if (m.includes('failed to fetch') || m.includes('networkerror')) {
+      return 'Ne možemo se povezati s bazom (mrežna greška). Na production sajtu u Vercel → Settings → Environment Variables moraju biti NEXT_PUBLIC_SUPABASE_URL i NEXT_PUBLIC_SUPABASE_ANON_KEY (iste vrijednosti kao u .env.local), zatim Redeploy. Bez toga sajt šalje zahtjeve na pogrešan adresu.'
+    }
+    return message
+  }
+
   const handleSubmit = async () => {
     setLoading(true)
     setGreska('')
@@ -25,7 +33,7 @@ export default function Registracija() {
         email: forma.email,
         password: forma.lozinka,
       })
-      if (authError) { setGreska(authError.message); setLoading(false); return }
+      if (authError) { setGreska(formatAuthError(authError.message)); setLoading(false); return }
 
       const baseSlug = fallbackSalonSlug(buildSalonSlug(forma.naziv))
       let slug = baseSlug
@@ -38,7 +46,7 @@ export default function Registracija() {
           .eq('slug', slug)
           .maybeSingle()
 
-        if (slugCheckError) { setGreska(slugCheckError.message); setLoading(false); return }
+        if (slugCheckError) { setGreska(formatAuthError(slugCheckError.message)); setLoading(false); return }
         if (!existingSlug) break
 
         slug = `${baseSlug}-${suffix}`
@@ -55,11 +63,12 @@ export default function Registracija() {
         tip: forma.tip,
         aktivan: true,
       })
-      if (salonError) { setGreska(salonError.message); setLoading(false); return }
+      if (salonError) { setGreska(formatAuthError(salonError.message)); setLoading(false); return }
 
       setKorak(3)
-    } catch {
-      setGreska('Došlo je do greške. Pokušajte ponovo.')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Nepoznata greška'
+      setGreska(formatAuthError(msg))
     }
     setLoading(false)
   }
@@ -131,6 +140,12 @@ export default function Registracija() {
                 <h1 style={{ fontSize: '26px', fontWeight: 500, color: '#f5f0e8', marginBottom: '8px' }}>Kreiraj tvoj salon</h1>
                 <p style={{ fontSize: '14px', color: 'rgba(245,240,232,.4)', lineHeight: 1.6 }}>Ovi podaci će biti prikazani na tvojoj landing page.</p>
               </div>
+              {!isSupabaseConfigured && (
+                <div style={{ background: 'rgba(212,175,55,.08)', border: '0.5px solid rgba(212,175,55,.35)', borderRadius: '12px', padding: '14px 16px', marginBottom: '20px', fontSize: '13px', color: 'rgba(245,240,232,.85)', lineHeight: 1.6 }}>
+                  Aplikacija na ovom okruženju nema Supabase adresu u buildu. U Vercel dodaj <code style={{ color: '#d4af37' }}>NEXT_PUBLIC_SUPABASE_URL</code> i <code style={{ color: '#d4af37' }}>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, pa ponovo deploy.
+                </div>
+              )}
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '28px' }}>
                 {[
                   { label: 'NAZIV SALONA', name: 'naziv', type: 'text', placeholder: 'npr. Salon Elegance' },

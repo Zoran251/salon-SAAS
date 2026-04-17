@@ -3,6 +3,14 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
+const formatAuthError = (message: string) => {
+  const m = message.toLowerCase()
+  if (m.includes('failed to fetch') || m.includes('networkerror')) {
+    return 'Ne možemo se povezati s bazom. U Vercel dodaj NEXT_PUBLIC_SUPABASE_URL i NEXT_PUBLIC_SUPABASE_ANON_KEY, pa Redeploy.'
+  }
+  return message
+}
+
 export default function Login() {
   const [loading, setLoading] = useState(false)
   const [greska, setGreska] = useState('')
@@ -17,7 +25,12 @@ export default function Login() {
     if (!forma.email || !forma.lozinka) { setGreska('Molimo unesite email i lozinku.'); return }
     setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email: forma.email, password: forma.lozinka })
-    if (error) { setGreska('Pogrešan email ili lozinka.'); setLoading(false); return }
+    if (error) {
+      const net = error.message.toLowerCase().includes('fetch') || error.message.toLowerCase().includes('network')
+      setGreska(net ? formatAuthError(error.message) : 'Pogrešan email ili lozinka.')
+      setLoading(false)
+      return
+    }
     window.location.href = '/dashboard'
   }
 

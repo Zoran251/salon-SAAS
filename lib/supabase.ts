@@ -164,6 +164,9 @@ const key = hasConfig
   ? supabaseKey!
   : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.build-without-env-placeholder'
 
+/** True kada su NEXT_PUBLIC_SUPABASE_* postavljene u trenutnom bundleu (npr. nakon Vercel deploya s env varijablama). */
+export const isSupabaseConfigured = hasConfig
+
 export const supabase = createClient<Database>(url, key, {
   auth: {
     persistSession: true,
