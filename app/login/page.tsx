@@ -30,7 +30,7 @@ export default function Login() {
   const handleLogin = async () => {
     if (!forma.email || !forma.lozinka) { setGreska('Molimo unesite email i lozinku.'); return }
     setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: forma.email.trim(),
       password: forma.lozinka,
     })
@@ -39,13 +39,18 @@ export default function Login() {
       setLoading(false)
       return
     }
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      setGreska('Prijava je uspjela, ali sesija nije sačuvana. Isključi blokatore za ovaj sajt ili pokušaj u drugom pregledniku.')
-      setLoading(false)
+    // Koristi sesiju iz odgovora — getSession() odmah poslije signIn često vrati null iako je prijava uspjela.
+    if (data.session) {
+      window.location.href = '/dashboard'
       return
     }
-    window.location.href = '/dashboard'
+    const { data: sess } = await supabase.auth.getSession()
+    if (sess.session) {
+      window.location.href = '/dashboard'
+      return
+    }
+    setGreska('Prijava nije završena (nema sesije). Ako si tek registrovan, potvrdi email u pismu ili u Supabase isključi obaveznu potvrdu emaila za test.')
+    setLoading(false)
   }
 
   return (

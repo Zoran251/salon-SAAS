@@ -29,11 +29,17 @@ export default function Registracija() {
     setLoading(true)
     setGreska('')
     try {
+      const email = forma.email.trim()
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: forma.email,
+        email,
         password: forma.lozinka,
       })
       if (authError) { setGreska(formatAuthError(authError.message)); setLoading(false); return }
+      if (!authData.user) {
+        setGreska('Registracija nije kreirala nalog. Pokušaj ponovo.')
+        setLoading(false)
+        return
+      }
 
       const baseSlug = fallbackSalonSlug(buildSalonSlug(forma.naziv))
       let slug = baseSlug
@@ -54,16 +60,25 @@ export default function Registracija() {
       }
 
       const { error: salonError } = await supabase.from('saloni').insert({
-        id: authData.user?.id,
+        id: authData.user.id,
         naziv: forma.naziv,
         slug: slug,
-        email: forma.email,
+        email,
         telefon: forma.telefon,
         grad: forma.grad,
         tip: forma.tip,
         aktivan: true,
       })
-      if (salonError) { setGreska(formatAuthError(salonError.message)); setLoading(false); return }
+      if (salonError) {
+        let msg = formatAuthError(salonError.message)
+        if (/row-level security|rls|permission denied|policy|42501/i.test(salonError.message)) {
+          msg =
+            'Baza je odbila kreiranje salona (prava pristupa). Ako je u Supabase uključena obavezna potvrda emaila, nakon registracije nema sesije — u Authentication isključi "Confirm email" za test ili dodaj RLS pravilo koje dozvoljava unos.'
+        }
+        setGreska(msg)
+        setLoading(false)
+        return
+      }
 
       setKorak(3)
     } catch (e) {

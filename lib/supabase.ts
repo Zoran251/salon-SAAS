@@ -223,10 +223,18 @@ export function isSupabaseConfigured(): boolean {
   return getPublicSupabaseEnv().ok
 }
 
+/**
+ * Lazy klijent preko Proxy-a: svaki pristup ide na jedan browser singleton (session u localStorage).
+ * Funkcije na root nivou moraju imati `this` = client (.from, .rpc).
+ */
 export const supabase = new Proxy({} as SupabaseClient<Database>, {
-  get(_target, prop, _receiver) {
+  get(_target, prop) {
     const client = getSupabaseInternal()
-    const value = Reflect.get(client, prop, client)
-    return typeof value === 'function' ? value.bind(client) : value
+    const value = Reflect.get(client, prop, client) as unknown
+    if (typeof value === 'function') {
+      const fn = value as (...args: unknown[]) => unknown
+      return (...args: unknown[]) => fn.apply(client, args)
+    }
+    return value
   },
 })
