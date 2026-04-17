@@ -8,6 +8,12 @@ const formatAuthError = (message: string) => {
   if (m.includes('failed to fetch') || m.includes('networkerror')) {
     return 'Ne možemo se povezati s bazom. U Vercel dodaj NEXT_PUBLIC_SUPABASE_URL i NEXT_PUBLIC_SUPABASE_ANON_KEY, pa Redeploy.'
   }
+  if (m.includes('email not confirmed') || m.includes('not confirmed')) {
+    return 'Potvrdi email (link iz pisma) prije prijave.'
+  }
+  if (m.includes('invalid login') || m.includes('invalid credentials')) {
+    return 'Pogrešan email ili lozinka.'
+  }
   return message
 }
 
@@ -24,10 +30,18 @@ export default function Login() {
   const handleLogin = async () => {
     if (!forma.email || !forma.lozinka) { setGreska('Molimo unesite email i lozinku.'); return }
     setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email: forma.email, password: forma.lozinka })
+    const { error } = await supabase.auth.signInWithPassword({
+      email: forma.email.trim(),
+      password: forma.lozinka,
+    })
     if (error) {
-      const net = error.message.toLowerCase().includes('fetch') || error.message.toLowerCase().includes('network')
-      setGreska(net ? formatAuthError(error.message) : 'Pogrešan email ili lozinka.')
+      setGreska(formatAuthError(error.message))
+      setLoading(false)
+      return
+    }
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      setGreska('Prijava je uspjela, ali sesija nije sačuvana. Isključi blokatore za ovaj sajt ili pokušaj u drugom pregledniku.')
       setLoading(false)
       return
     }

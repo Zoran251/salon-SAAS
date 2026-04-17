@@ -46,21 +46,25 @@ export default function Dashboard() {
   const text = '#f5f0e8'
   const neprocitaniTermini = termini.filter(t => t.status !== 'potvrđen').length
 
-  // Provjera autentifikacije pri učitavanju
+  // Provjera autentifikacije — getSession() čita lokalnu sesiju (nakon prijave/refresha);
+  // getUser() često udara mrežu i može pogrešno baciti na login ako je mreža spora ili token još nije spreman.
   useEffect(() => {
     const provjeriAutentifikaciju = async () => {
       try {
-        const { data: { user }, error } = await supabase.auth.getUser()
-        
-        if (error || !user) {
-          console.log('Korisnik nije prijavljen, preusmjeravanje na login...')
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession()
+
+        if (sessionError || !session?.user) {
+          console.log('Nema aktivne sesije, preusmjeravanje na login...', sessionError?.message)
           router.push('/login')
           return
         }
 
-        console.log('Korisnik pronađen:', user.id)
+        console.log('Sesija pronađena:', session.user.id)
         setAutentifikovan(true)
-        await ucitajPodatke(user.id)
+        await ucitajPodatke(session.user.id)
       } catch (err) {
         console.error('Greška pri provjeri autentifikacije:', err)
         router.push('/login')
