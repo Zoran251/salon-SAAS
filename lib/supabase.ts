@@ -163,6 +163,9 @@ const clientOptions = {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    // Eksplicitno localStorage — ista instanca pri svakom učitavanju stranice nakon prijave.
+    storage:
+      typeof window !== 'undefined' ? window.localStorage : undefined,
   },
   global: {
     headers: {

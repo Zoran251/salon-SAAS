@@ -46,32 +46,63 @@ export default function Dashboard() {
   const text = '#f5f0e8'
   const neprocitaniTermini = termini.filter(t => t.status !== 'potvrđen').length
 
-  // Provjera autentifikacije — getSession() čita lokalnu sesiju (nakon prijave/refresha);
-  // getUser() često udara mrežu i može pogrešno baciti na login ako je mreža spora ili token još nije spreman.
+  // getSession() pri prvom renderu često vrati null dok Supabase ne učita sesiju iz localStorage.
+  // onAuthStateChange + kratki retry sprječavaju lažni redirect na /login nakon uspješne prijave.
   useEffect(() => {
-    const provjeriAutentifikaciju = async () => {
-      try {
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession()
+    let cancelled = false
+    let loaded = false
 
-        if (sessionError || !session?.user) {
-          console.log('Nema aktivne sesije, preusmjeravanje na login...', sessionError?.message)
-          router.push('/login')
-          return
-        }
-
-        console.log('Sesija pronađena:', session.user.id)
-        setAutentifikovan(true)
-        await ucitajPodatke(session.user.id)
-      } catch (err) {
-        console.error('Greška pri provjeri autentifikacije:', err)
-        router.push('/login')
-      }
+    const loadDashboard = async (userId: string) => {
+      if (cancelled || loaded) return
+      loaded = true
+      setAutentifikovan(true)
+      await ucitajPodatke(userId)
     }
 
-    provjeriAutentifikaciju()
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return
+      if ((event === 'INITIAL_SESSION' || event === 'SIGNED_IN') && session?.user) {
+        void loadDashboard(session.user.id)
+      }
+    })
+
+    ;(async () => {
+      try {
+        for (let i = 0; i < 35; i++) {
+          if (cancelled || loaded) return
+          const {
+            data: { session },
+            error: sessionError,
+          } = await supabase.auth.getSession()
+
+          if (sessionError) console.error('getSession:', sessionError)
+          if (session?.user) {
+            await loadDashboard(session.user.id)
+            return
+          }
+          await new Promise((r) => setTimeout(r, 80))
+        }
+        if (!cancelled && !loaded) {
+          const { data: { session: last } } = await supabase.auth.getSession()
+          if (last?.user) {
+            await loadDashboard(last.user.id)
+          } else {
+            console.log('Nema sesije nakon čekanja — login')
+            router.push('/login')
+          }
+        }
+      } catch (err) {
+        console.error('Greška pri provjeri autentifikacije:', err)
+        if (!cancelled) router.push('/login')
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
   }, [router])
 
   const ucitajPodatke = async (userId: string) => {
