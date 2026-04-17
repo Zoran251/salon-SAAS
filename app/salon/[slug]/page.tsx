@@ -115,7 +115,7 @@ export default function SalonLanding() {
           return
         }
 
-        setSalon(salonData)
+        setSalon({ ...salonData, slug: salonData.slug ?? slug } as Salon)
 
         // Učitaj usluge
         const { data: uslugeData } = await supabase
@@ -123,7 +123,7 @@ export default function SalonLanding() {
           .select('*')
           .eq('salon_id', salonData.id)
 
-        setUsluge(uslugeData || [])
+        setUsluge((uslugeData || []) as Usluga[])
 
         // Učitaj lojalnost
         const { data: lojalnostData } = await supabase

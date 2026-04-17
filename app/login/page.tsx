@@ -34,13 +34,10 @@ export default function Login() {
         input:focus{border-color:rgba(212,175,55,.6)}
         .login-btn{width:100%;padding:16px;border-radius:16px;background:linear-gradient(135deg,#d4af37,#b8960c);color:#0a0a0a;font-size:16px;font-weight:600;cursor:pointer;border:none;font-family:sans-serif;animation:pulse 2.5s ease infinite;transition:opacity .3s}
         .login-btn:disabled{opacity:.6;cursor:not-allowed;animation:none}
-        @media(max-width:768px){
-          .login-card{padding:28px 20px!important}
-          .login-nav{padding:14px 20px!important}
-        }
+        @media(max-width:768px){.login-card{padding:28px 20px!important}}
       `}</style>
 
-      <nav className="login-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 48px', borderBottom: '0.5px solid rgba(212,175,55,.2)', background: 'rgba(10,10,10,.97)', position: 'sticky', top: 0, zIndex: 100 }}>
+      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 48px', borderBottom: '0.5px solid rgba(212,175,55,.2)', background: 'rgba(10,10,10,.97)', position: 'sticky', top: 0, zIndex: 100 }}>
         <Link href="/" style={{ fontSize: '22px', fontWeight: 500, background: 'linear-gradient(90deg,#d4af37,#f5e17a,#d4af37)', backgroundSize: '200% auto', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', animation: 'shimmer 3s linear infinite', textDecoration: 'none' }}>SalonPro</Link>
         <Link href="/registracija" style={{ fontSize: '14px', color: 'rgba(245,240,232,.5)', textDecoration: 'none' }}>Nemate nalog? <span style={{ color: '#d4af37' }}>Registrujte se →</span></Link>
       </nav>
