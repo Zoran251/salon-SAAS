@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { getGoogleMapsEmbedApiKey } from "@/lib/env-google-maps";
 import { getPublicSupabaseEnv } from "@/lib/env-supabase";
 import "./globals.css";
 
@@ -28,6 +29,7 @@ export default function RootLayout({
 }>) {
   const { url, anonKey } = getPublicSupabaseEnv();
   const supabaseBootstrap = JSON.stringify({ url, anonKey });
+  const mapsKey = JSON.stringify(getGoogleMapsEmbedApiKey());
   return (
     <html
       lang="en"
@@ -36,7 +38,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `window.__SALON_SUPABASE__=${supabaseBootstrap};`,
+            __html: `window.__SALON_SUPABASE__=${supabaseBootstrap};window.__GOOGLE_MAPS_EMBED_KEY__=${mapsKey};`,
           }}
         />
       </head>

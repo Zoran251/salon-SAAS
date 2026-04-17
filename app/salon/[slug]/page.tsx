@@ -68,6 +68,36 @@ interface ClientSummary {
   }>
 }
 
+declare global {
+  interface Window {
+    __GOOGLE_MAPS_EMBED_KEY__?: string
+  }
+}
+
+/** Adresa + grad (dovoljan je bar jedan da se mapa prikaže). */
+function buildLocationQuery(salon: Salon): string {
+  return [salon.adresa, salon.grad]
+    .map((s) => (typeof s === 'string' ? s.trim() : ''))
+    .filter(Boolean)
+    .join(', ')
+}
+
+/** Službeni Embed API ako postoji ključ (layout injektuje ga s Vercela); inače iframe bez ključa. */
+function buildMapsEmbedSrc(locationQuery: string): string {
+  const key =
+    (typeof window !== 'undefined' && window.__GOOGLE_MAPS_EMBED_KEY__) ||
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
+    ''
+  if (key) {
+    return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(key)}&q=${encodeURIComponent(locationQuery)}`
+  }
+  return `https://maps.google.com/maps?q=${encodeURIComponent(locationQuery)}&hl=sr&z=16&output=embed`
+}
+
+function mapsSearchUrl(locationQuery: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(locationQuery)}`
+}
+
 export default function SalonLanding() {
   const params = useParams<{ slug: string }>()
   const slug = typeof params?.slug === 'string' ? params.slug : ''
@@ -264,9 +294,9 @@ export default function SalonLanding() {
   const goldFaint = 'rgba(212,175,55,.12)'
   const goldBorder = 'rgba(212,175,55,.25)'
 
-  const mapsUrl = salon.adresa && salon.grad
-    ? `https://www.google.com/maps/embed/v1/place?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&q=${encodeURIComponent(salon.adresa + ' ' + salon.grad)}`
-    : ''
+  const locationQuery = salon ? buildLocationQuery(salon) : ''
+  const mapsUrl = locationQuery ? buildMapsEmbedSrc(locationQuery) : ''
+  const openInMapsUrl = locationQuery ? mapsSearchUrl(locationQuery) : ''
   const statusLabel = bookingNotif?.status === 'potvrđen' ? 'Termin je potvrđen' : 'Termin čeka potvrdu'
 
   const handleZakazivanje = async () => {
@@ -681,15 +711,32 @@ export default function SalonLanding() {
         )}
 
         {/* GOOGLE MAPA */}
-        {activeView === 'booking' && mapsUrl && (
+        {activeView === 'booking' && mapsUrl && locationQuery && (
           <div style={{ marginTop: '48px' }}>
             <h2 style={{ fontSize: '22px', fontWeight: 500, color: '#f5f0e8', marginBottom: '8px' }}>Gdje se nalazimo</h2>
             <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.4)', marginBottom: '20px' }}>
-              📍 {salon.adresa}, {salon.grad}
+              📍 {locationQuery}
             </p>
             <div style={{ borderRadius: '16px', overflow: 'hidden', border: '0.5px solid rgba(212,175,55,.2)', height: '300px' }}>
-              <iframe width="100%" height="300" style={{ border: 0, display: 'block' }} loading="lazy" allowFullScreen src={mapsUrl} />
+              <iframe
+                title="Lokacija salona na mapi"
+                width="100%"
+                height="300"
+                style={{ border: 0, display: 'block' }}
+                loading="lazy"
+                allowFullScreen
+                referrerPolicy="no-referrer-when-downgrade"
+                src={mapsUrl}
+              />
             </div>
+            <a
+              href={openInMapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: 'inline-block', marginTop: '12px', fontSize: '13px', color: gold }}
+            >
+              Otvori u Google Maps →
+            </a>
           </div>
         )}
 
