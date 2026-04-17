@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
+import { authPasswordViaApi } from '@/lib/auth-via-api'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { buildSalonSlug, fallbackSalonSlug } from '@/lib/slug'
 
@@ -30,13 +31,45 @@ export default function Registracija() {
     setGreska('')
     try {
       const email = forma.email.trim()
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password: forma.lozinka,
-      })
-      if (authError) { setGreska(formatAuthError(authError.message)); setLoading(false); return }
-      if (!authData.user) {
-        setGreska('Registracija nije kreirala nalog. Pokušaj ponovo.')
+      const r = await authPasswordViaApi('signup', email, forma.lozinka)
+      if (r.error) {
+        setGreska(formatAuthError(r.error))
+        setLoading(false)
+        return
+      }
+      if (!r.userId) {
+        setGreska('Registracija nije vratila korisnika. Pokušaj ponovo.')
+        setLoading(false)
+        return
+      }
+
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session) {
+        const res2 = await fetch('/api/salon/register-initial', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: r.userId,
+            naziv: forma.naziv,
+            email,
+            telefon: forma.telefon,
+            grad: forma.grad,
+            tip: forma.tip,
+          }),
+        })
+        const j2 = (await res2.json()) as { error?: string }
+        if (!res2.ok) {
+          setGreska(
+            formatAuthError(
+              j2.error ||
+                'Kreiranje salona nije uspjelo. Isključi obaveznu potvrdu emaila u Supabase (Authentication) ili dodaj SUPABASE_SERVICE_ROLE_KEY na Vercel.',
+            ),
+          )
+          setLoading(false)
+          return
+        }
+        setKorak(3)
         setLoading(false)
         return
       }
@@ -52,7 +85,11 @@ export default function Registracija() {
           .eq('slug', slug)
           .maybeSingle()
 
-        if (slugCheckError) { setGreska(formatAuthError(slugCheckError.message)); setLoading(false); return }
+        if (slugCheckError) {
+          setGreska(formatAuthError(slugCheckError.message))
+          setLoading(false)
+          return
+        }
         if (!existingSlug) break
 
         slug = `${baseSlug}-${suffix}`
@@ -60,7 +97,7 @@ export default function Registracija() {
       }
 
       const { error: salonError } = await supabase.from('saloni').insert({
-        id: authData.user.id,
+        id: r.userId,
         naziv: forma.naziv,
         slug: slug,
         email,
@@ -73,7 +110,7 @@ export default function Registracija() {
         let msg = formatAuthError(salonError.message)
         if (/row-level security|rls|permission denied|policy|42501/i.test(salonError.message)) {
           msg =
-            'Baza je odbila kreiranje salona (prava pristupa). Ako je u Supabase uključena obavezna potvrda emaila, nakon registracije nema sesije — u Authentication isključi "Confirm email" za test ili dodaj RLS pravilo koje dozvoljava unos.'
+            'Baza je odbila kreiranje salona (prava pristupa). U Supabase Authentication isključi "Confirm email" za test ili prilagodi RLS za tabelu saloni.'
         }
         setGreska(msg)
         setLoading(false)

@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
+import { authPasswordViaApi } from '@/lib/auth-via-api'
 import { supabase } from '@/lib/supabase'
 
 const formatAuthError = (message: string) => {
@@ -30,27 +31,19 @@ export default function Login() {
   const handleLogin = async () => {
     if (!forma.email || !forma.lozinka) { setGreska('Molimo unesite email i lozinku.'); return }
     setLoading(true)
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: forma.email.trim(),
-      password: forma.lozinka,
-    })
-    if (error) {
-      setGreska(formatAuthError(error.message))
+    const r = await authPasswordViaApi('signin', forma.email.trim(), forma.lozinka)
+    if (r.error) {
+      setGreska(formatAuthError(r.error))
       setLoading(false)
       return
     }
-    // Koristi sesiju iz odgovora — getSession() odmah poslije signIn često vrati null iako je prijava uspjela.
-    if (data.session) {
-      window.location.href = '/dashboard'
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      setGreska('Prijava nije završila sesiju. Pokušaj ponovo ili potvrdi email u Supabase podešavanjima.')
+      setLoading(false)
       return
     }
-    const { data: sess } = await supabase.auth.getSession()
-    if (sess.session) {
-      window.location.href = '/dashboard'
-      return
-    }
-    setGreska('Prijava nije završena (nema sesije). Ako si tek registrovan, potvrdi email u pismu ili u Supabase isključi obaveznu potvrdu emaila za test.')
-    setLoading(false)
+    window.location.href = '/dashboard'
   }
 
   return (
