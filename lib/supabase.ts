@@ -151,12 +151,20 @@ export type Database = {
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const hasConfig = Boolean(supabaseUrl && supabaseKey)
 
-if (!supabaseUrl || !supabaseKey) {
+// Lokalni dev: jasna greška ako .env.local nije postavljen.
+// Production build (npr. Vercel prije dodavanja env varijabli): ne bacamo — inače padne prerender /dashboard.
+if (process.env.NODE_ENV === 'development' && !hasConfig) {
   throw new Error('Nedostaju Supabase env varijable: NEXT_PUBLIC_SUPABASE_URL i NEXT_PUBLIC_SUPABASE_ANON_KEY')
 }
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
+const url = hasConfig ? supabaseUrl! : 'https://placeholder.supabase.co'
+const key = hasConfig
+  ? supabaseKey!
+  : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.build-without-env-placeholder'
+
+export const supabase = createClient<Database>(url, key, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
