@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { getPublicSupabaseEnv } from '@/lib/env-supabase'
+import { APP_ROLE_KEY } from '@/lib/user-role'
 
 /**
  * Prijava / registracija preko servera → preglednik ne mora direktno zvati *.supabase.co
@@ -52,7 +53,14 @@ export async function POST(request: Request) {
     }
 
     if (action === 'signup') {
-      const { data, error } = await supabase.auth.signUp({ email, password })
+      const appRole = body.app_role as string | undefined
+      const roleOk = appRole === 'salon_owner' || appRole === 'customer'
+
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        ...(roleOk ? { options: { data: { [APP_ROLE_KEY]: appRole } } } : {}),
+      })
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
       }

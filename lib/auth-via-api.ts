@@ -1,8 +1,14 @@
 'use client'
 
 import { supabase } from '@/lib/supabase'
+import type { AppRole } from '@/lib/user-role'
 
 export type AuthPasswordAction = 'signin' | 'signup'
+
+export type AuthPasswordSignupOptions = {
+  /** Samo za signup — sprema se u user_metadata (npr. salon_owner za /registracija). */
+  app_role?: AppRole
+}
 
 /**
  * Auth preko /api/auth/password (server → Supabase), zatim setSession u pregledniku.
@@ -11,13 +17,18 @@ export async function authPasswordViaApi(
   action: AuthPasswordAction,
   email: string,
   password: string,
+  signupOptions?: AuthPasswordSignupOptions,
 ): Promise<{ error: string | null; userId: string | null; serverReturnedSession: boolean }> {
   let res: Response
   try {
+    const body: Record<string, unknown> = { action, email, password }
+    if (action === 'signup' && signupOptions?.app_role) {
+      body.app_role = signupOptions.app_role
+    }
     res = await fetch('/api/auth/password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, email, password }),
+      body: JSON.stringify(body),
     })
   } catch {
     return {

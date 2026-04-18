@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { buildSalonSlug, fallbackSalonSlug } from '@/lib/slug'
+import { getAppRole } from '@/lib/user-role'
 
 const navItems = [
   { id: 'pregled', icon: '🏠', label: 'Pregled' },
@@ -118,6 +119,12 @@ export default function Dashboard() {
 
       if (salonError || !salonData) {
         console.error('Salon nije pronađen:', salonError)
+        const { data: userData } = await supabase.auth.getUser()
+        const role = getAppRole(userData.user)
+        if (role === 'customer') {
+          router.replace('/')
+          return
+        }
         router.push('/registracija')
         return
       }

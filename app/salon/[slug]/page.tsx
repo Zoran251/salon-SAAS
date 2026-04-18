@@ -1,7 +1,9 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { APP_ROLE_KEY, getAppRole } from '@/lib/user-role'
 
 interface Usluga {
   id: string
@@ -117,6 +119,8 @@ export default function SalonLanding() {
   const [clientAuthError, setClientAuthError] = useState('')
   const [clientAuthSuccess, setClientAuthSuccess] = useState('')
   const [klijentUlogovan, setKlijentUlogovan] = useState(false)
+  const [vlasnikOvogSalona, setVlasnikOvogSalona] = useState(false)
+  const [guestAuthCollapsed, setGuestAuthCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [activeView, setActiveView] = useState<PageView>('booking')
   const [clientSummary, setClientSummary] = useState<ClientSummary | null>(null)
@@ -174,12 +178,42 @@ export default function SalonLanding() {
   }, [slug])
 
   useEffect(() => {
-    const provjeriKlijentSesiju = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setKlijentUlogovan(Boolean(user))
+    if (!salon?.id) return
+
+    const applyUser = (user: { id: string; user_metadata?: Record<string, unknown> } | null) => {
+      if (!user) {
+        setKlijentUlogovan(false)
+        setVlasnikOvogSalona(false)
+        return
+      }
+      const ownerHere = user.id === salon.id
+      setVlasnikOvogSalona(ownerHere)
+      if (ownerHere) {
+        setKlijentUlogovan(false)
+        return
+      }
+      const role = getAppRole(user)
+      if (role === 'salon_owner') {
+        setKlijentUlogovan(false)
+        return
+      }
+      if (role === 'customer') {
+        setKlijentUlogovan(true)
+        return
+      }
+      // Stari nalozi bez app_role: kupac ako nije vlasnik ovog salona
+      setKlijentUlogovan(user.id !== salon.id)
     }
-    void provjeriKlijentSesiju()
-  }, [])
+
+    void supabase.auth.getUser().then(({ data: { user } }) => applyUser(user))
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      applyUser(session?.user ?? null)
+    })
+    return () => subscription.unsubscribe()
+  }, [salon?.id])
 
   const ucitajClientSummary = useCallback(async () => {
     if (!salon?.id) return
@@ -379,6 +413,7 @@ export default function SalonLanding() {
         const { error: signUpError } = await supabase.auth.signUp({
           email: clientForma.email.trim(),
           password: clientForma.lozinka,
+          options: { data: { [APP_ROLE_KEY]: 'customer' } },
         })
         if (signUpError) throw new Error(signUpError.message)
 
@@ -396,8 +431,16 @@ export default function SalonLanding() {
       }
 
       await poveziKlijentNalog(clientForma.ime.trim() || 'Klijent', clientForma.telefon.trim(), clientForma.email.trim())
+
+      const { data: userData } = await supabase.auth.getUser()
+      const u = userData.user
+      if (u && u.id !== salon.id && getAppRole(u) !== 'salon_owner') {
+        await supabase.auth.updateUser({ data: { [APP_ROLE_KEY]: 'customer' } })
+      }
+
       setKlijentUlogovan(true)
-      setClientAuthSuccess(clientAuthMode === 'signup' ? 'Klijentski nalog je kreiran i povezan.' : 'Uspješna prijava klijenta.')
+      setVlasnikOvogSalona(false)
+      setClientAuthSuccess(clientAuthMode === 'signup' ? 'Kupčki nalog je kreiran i povezan.' : 'Uspješna prijava kao kupac.')
       setActiveView('profile')
       await ucitajClientSummary()
     } catch (error) {
@@ -410,6 +453,8 @@ export default function SalonLanding() {
   const handleClientLogout = async () => {
     await supabase.auth.signOut()
     setKlijentUlogovan(false)
+    setVlasnikOvogSalona(false)
+    setGuestAuthCollapsed(false)
     setClientSummary(null)
     setClientAuthSuccess('Odjavljeni ste.')
   }
@@ -425,8 +470,39 @@ export default function SalonLanding() {
         .usluga-card{cursor:pointer;background:#161616;border:0.5px solid rgba(212,175,55,.15);border-radius:16px;padding:20px;transition:all .3s}
         .usluga-card:hover{border-color:rgba(212,175,55,.4);transform:translateY(-2px)}
         .usluga-active{border-color:#d4af37!important;background:rgba(212,175,55,.08)!important}
+        .salon-sticky-nav{
+          position:sticky;top:0;z-index:50;
+          background:rgba(8,8,8,.88);
+          backdrop-filter:saturate(140%) blur(14px);
+          -webkit-backdrop-filter:saturate(140%) blur(14px);
+          border-bottom:0.5px solid rgba(212,175,55,.22);
+          box-shadow:0 12px 40px rgba(0,0,0,.35);
+        }
+        .salon-nav-inner{
+          max-width:900px;margin:0 auto;
+          padding:12px 48px;
+          display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+        }
+        .salon-nav-brand{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+        .salon-nav-brand-mark{
+          width:36px;height:36px;border-radius:12px;flex-shrink:0;
+          display:flex;align-items:center;justify-content:center;
+          font-size:15px;font-weight:700;color:#0a0a0a;
+          border:0.5px solid rgba(212,175,55,.35);
+        }
+        .salon-nav-brand-text{font-size:14px;font-weight:600;color:#f5f0e8;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .salon-nav-pills{display:none;align-items:center;gap:8px;flex-wrap:wrap}
+        .salon-nav-burger-only{display:inline-flex;align-items:center;justify-content:center}
+        .salon-nav-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+        @media(min-width:769px){
+          .salon-nav-pills{display:flex}
+          .salon-nav-burger-only{display:none!important}
+          .salon-mobile-sheet{display:none!important}
+        }
         @media(max-width:768px){
-          .hero-section{padding:40px 20px!important}
+          .salon-nav-inner{padding:10px 20px}
+          .salon-mobile-sheet{padding:0 20px 12px!important}
+          .hero-section{padding:36px 20px 44px!important}
           .hero-title{font-size:28px!important}
           .content-pad{padding:0 20px 40px!important}
           .usluge-grid{grid-template-columns:1fr!important}
@@ -434,17 +510,192 @@ export default function SalonLanding() {
         }
       `}</style>
 
-      {/* HEADER */}
-      <div className="hero-section" style={{ background: 'linear-gradient(135deg,#111,#1a1500)', borderBottom: '0.5px solid rgba(212,175,55,.2)', padding: '60px 48px', textAlign: 'center', animation: 'fadeUp .6s ease' }}>
+      {/* Sticky navigacija — iznad hero-a; na mobilnom samo burger */}
+      <header className="salon-sticky-nav">
+        <div className="salon-nav-inner">
+          <div className="salon-nav-brand">
+            {salon.logo_url ? (
+              <img
+                src={salon.logo_url}
+                alt=""
+                width={36}
+                height={36}
+                style={{ borderRadius: 12, objectFit: 'cover', border: '0.5px solid rgba(212,175,55,.35)' }}
+              />
+            ) : (
+              <div
+                className="salon-nav-brand-mark"
+                style={{ background: `linear-gradient(135deg,${gold},#b8960c)` }}
+              >
+                {salon.naziv.charAt(0)}
+              </div>
+            )}
+            <span className="salon-nav-brand-text">{salon.naziv}</span>
+          </div>
+
+          <div className="salon-nav-pills">
+            <button
+              type="button"
+              onClick={() => setActiveView('booking')}
+              style={{
+                background: activeView === 'booking' ? 'rgba(212,175,55,.12)' : 'transparent',
+                color: activeView === 'booking' ? gold : 'rgba(245,240,232,.65)',
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '8px 14px',
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'background .2s,color .2s',
+              }}
+            >
+              Zakazivanje
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView('profile')}
+              style={{
+                background: activeView === 'profile' ? 'rgba(212,175,55,.12)' : 'transparent',
+                color: activeView === 'profile' ? gold : 'rgba(245,240,232,.65)',
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '8px 14px',
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'background .2s,color .2s',
+              }}
+            >
+              Tvoj profil
+            </button>
+          </div>
+
+          <div className="salon-nav-actions">
+            {klijentUlogovan && (
+              <button
+                type="button"
+                onClick={() => void ucitajClientSummary()}
+                style={{
+                  background: 'transparent',
+                  color: 'rgba(245,240,232,.75)',
+                  border: '0.5px solid rgba(245,240,232,.18)',
+                  borderRadius: 10,
+                  padding: '8px 12px',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                {summaryLoading ? '…' : 'Osveži'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="salon-nav-burger-only"
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              aria-expanded={mobileMenuOpen}
+              aria-label="Meni"
+              style={{
+                background: '#141414',
+                color: '#f5f0e8',
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '10px 12px',
+                fontSize: 16,
+                lineHeight: 1,
+                cursor: 'pointer',
+              }}
+            >
+              ☰
+            </button>
+          </div>
+        </div>
+
+        {mobileMenuOpen && (
+          <div
+            style={{
+              maxWidth: 900,
+              margin: '0 auto',
+              padding: '0 48px 12px',
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+              borderTop: '0.5px solid rgba(212,175,55,.12)',
+              paddingTop: 12,
+            }}
+            className="salon-mobile-sheet"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView('booking')
+                setMobileMenuOpen(false)
+              }}
+              style={{
+                background: 'transparent',
+                color: 'rgba(245,240,232,.85)',
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '10px 14px',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Zakazivanje
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView('profile')
+                setMobileMenuOpen(false)
+              }}
+              style={{
+                background: 'transparent',
+                color: 'rgba(245,240,232,.85)',
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '10px 14px',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Tvoj profil
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowForma(true)
+                setActiveView('booking')
+                setMobileMenuOpen(false)
+              }}
+              style={{
+                background: 'rgba(212,175,55,.1)',
+                color: gold,
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '10px 14px',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Novi termin
+            </button>
+          </div>
+        )}
+      </header>
+
+      {/* Hero — podaci o salonu */}
+      <div className="hero-section" style={{ background: 'linear-gradient(180deg,#0f0d08 0%,#111 32%,#1a1500 100%)', borderBottom: '0.5px solid rgba(212,175,55,.18)', padding: '52px 48px 56px', textAlign: 'center', animation: 'fadeUp .6s ease' }}>
         {salon.logo_url
           ? <img src={salon.logo_url} alt={salon.naziv} style={{ width: '80px', height: '80px', borderRadius: '20px', objectFit: 'cover', margin: '0 auto 20px', display: 'block', border: '0.5px solid rgba(212,175,55,.3)' }} />
           : <div style={{ width: '80px', height: '80px', borderRadius: '20px', background: `linear-gradient(135deg,${gold},#b8960c)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 600, color: '#0a0a0a', margin: '0 auto 20px' }}>
               {salon.naziv.charAt(0)}
             </div>
         }
-        {salon.tip && <div style={{ fontSize: '12px', color: gold, letterSpacing: '1px', marginBottom: '12px' }}>{salon.tip.toUpperCase()}</div>}
-        <h1 className="hero-title" style={{ fontSize: '42px', fontWeight: 500, color: '#f5f0e8', marginBottom: '16px' }}>{salon.naziv}</h1>
-        {salon.opis && <p style={{ fontSize: '16px', color: 'rgba(245,240,232,.55)', lineHeight: 1.8, maxWidth: '600px', margin: '0 auto 24px' }}>{salon.opis}</p>}
+        {salon.tip && <div style={{ fontSize: '11px', color: gold, letterSpacing: '2px', marginBottom: '14px', fontWeight: 600 }}>{salon.tip.toUpperCase()}</div>}
+        <h1 className="hero-title" style={{ fontSize: '42px', fontWeight: 600, color: '#f5f0e8', marginBottom: '12px', letterSpacing: '-0.02em', lineHeight: 1.15 }}>{salon.naziv}</h1>
+        <div style={{ width: 56, height: 3, borderRadius: 2, margin: '0 auto 20px', background: `linear-gradient(90deg,transparent,${gold},transparent)` }} aria-hidden />
+        {salon.opis && <p style={{ fontSize: '16px', color: 'rgba(245,240,232,.58)', lineHeight: 1.75, maxWidth: '560px', margin: '0 auto 28px' }}>{salon.opis}</p>}
         <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap', fontSize: '13px', color: 'rgba(245,240,232,.45)' }}>
           {salon.grad && <span>📍 {salon.adresa ? `${salon.adresa}, ` : ''}{salon.grad}</span>}
           {salon.telefon && <span>📞 {salon.telefon}</span>}
@@ -453,45 +704,18 @@ export default function SalonLanding() {
       </div>
 
       <div className="content-pad" style={{ maxWidth: '900px', margin: '0 auto', padding: '0 48px 60px' }}>
-        <div style={{ marginTop: '20px', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <button
-              onClick={() => setMobileMenuOpen((prev) => !prev)}
-              style={{ background: '#141414', color: '#f5f0e8', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 10px', fontSize: '13px', cursor: 'pointer' }}
-            >
-              ☰ Meni
-            </button>
-            <button
-              onClick={() => setActiveView('booking')}
-              style={{ background: activeView === 'booking' ? goldFaint : 'transparent', color: activeView === 'booking' ? gold : 'rgba(245,240,232,.6)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
-            >
-              Zakazivanje
-            </button>
-            <button
-              onClick={() => setActiveView('profile')}
-              style={{ background: activeView === 'profile' ? goldFaint : 'transparent', color: activeView === 'profile' ? gold : 'rgba(245,240,232,.6)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
-            >
-              Tvoj profil
-            </button>
-          </div>
-          {klijentUlogovan && (
-            <button onClick={() => void ucitajClientSummary()} style={{ background: 'transparent', color: 'rgba(245,240,232,.7)', border: '0.5px solid rgba(245,240,232,.2)', borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}>
-              {summaryLoading ? 'Učitavanje...' : 'Osveži profil'}
-            </button>
-          )}
-        </div>
-
-        {mobileMenuOpen && (
-          <div style={{ marginBottom: '12px', background: '#141414', border: `0.5px solid ${goldBorder}`, borderRadius: '12px', padding: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button onClick={() => { setActiveView('booking'); setMobileMenuOpen(false) }} style={{ background: 'transparent', color: 'rgba(245,240,232,.75)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 10px', fontSize: '12px', cursor: 'pointer' }}>Zakazivanje</button>
-            <button onClick={() => { setActiveView('profile'); setMobileMenuOpen(false) }} style={{ background: 'transparent', color: 'rgba(245,240,232,.75)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 10px', fontSize: '12px', cursor: 'pointer' }}>Tvoj profil</button>
-            <button onClick={() => { setShowForma(true); setActiveView('booking'); setMobileMenuOpen(false) }} style={{ background: 'transparent', color: 'rgba(245,240,232,.75)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 10px', fontSize: '12px', cursor: 'pointer' }}>Novi termin</button>
-          </div>
-        )}
-
         <div style={{ marginTop: '28px', background: '#161616', border: `0.5px solid ${goldBorder}`, borderRadius: '18px', padding: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 500, color: '#f5f0e8' }}>🔔 Klijentski nalog</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: 500, color: '#f5f0e8' }}>Kupac — prijava ili registracija</h3>
+              <p style={{ fontSize: '12px', color: 'rgba(245,240,232,.45)', marginTop: '6px', lineHeight: 1.5 }}>
+                Za kupce i goste. Vlasnici salona koriste{' '}
+                <Link href="/login" style={{ color: gold }}>prijavu</Link>
+                {' '}i{' '}
+                <Link href="/registracija" style={{ color: gold }}>registraciju</Link>
+                {' '}za posao.
+              </p>
+            </div>
             {klijentUlogovan && (
               <button
                 onClick={handleClientLogout}
@@ -502,26 +726,72 @@ export default function SalonLanding() {
             )}
           </div>
 
-          {!klijentUlogovan ? (
+          {vlasnikOvogSalona ? (
+            <div style={{ fontSize: '13px', color: 'rgba(245,240,232,.75)', lineHeight: 1.6 }}>
+              <p style={{ marginBottom: '12px' }}>Prijavljeni ste kao vlasnik ovog salona — ovo nije kupčki nalog.</p>
+              <Link
+                href="/dashboard"
+                style={{
+                  display: 'inline-block',
+                  background: `linear-gradient(135deg,${gold},#b8960c)`,
+                  color: '#0a0a0a',
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  textDecoration: 'none',
+                }}
+              >
+                Idi na kontrolnu tablu
+              </Link>
+            </div>
+          ) : !klijentUlogovan ? (
             <>
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-                <button onClick={() => setClientAuthMode('signup')} style={{ background: clientAuthMode === 'signup' ? goldFaint : 'transparent', color: clientAuthMode === 'signup' ? gold : 'rgba(245,240,232,.6)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}>Kreiraj nalog</button>
-                <button onClick={() => setClientAuthMode('login')} style={{ background: clientAuthMode === 'login' ? goldFaint : 'transparent', color: clientAuthMode === 'login' ? gold : 'rgba(245,240,232,.6)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}>Prijava</button>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-                {clientAuthMode === 'signup' && (
-                  <input style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Ime i prezime" value={clientForma.ime} onChange={e => setClientForma({ ...clientForma, ime: e.target.value })} />
-                )}
-                <input style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Telefon" value={clientForma.telefon} onChange={e => setClientForma({ ...clientForma, telefon: e.target.value })} />
-                <input type="email" style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Email" value={clientForma.email} onChange={e => setClientForma({ ...clientForma, email: e.target.value })} />
-                <input type="password" style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Lozinka" value={clientForma.lozinka} onChange={e => setClientForma({ ...clientForma, lozinka: e.target.value })} />
-              </div>
-              <button onClick={handleClientAuth} disabled={clientAuthLoading} style={{ background: `linear-gradient(135deg,${gold},#b8960c)`, color: '#0a0a0a', border: 'none', padding: '12px 18px', borderRadius: '10px', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}>
-                {clientAuthLoading ? 'Molimo sačekajte...' : (clientAuthMode === 'signup' ? 'Kreiraj klijentski nalog' : 'Prijavi se')}
-              </button>
+              {!guestAuthCollapsed ? (
+                <>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGuestAuthCollapsed(true)
+                        setActiveView('booking')
+                      }}
+                      style={{ background: 'transparent', color: 'rgba(245,240,232,.75)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      Nastavi kao gost
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+                    <button type="button" onClick={() => setClientAuthMode('signup')} style={{ background: clientAuthMode === 'signup' ? goldFaint : 'transparent', color: clientAuthMode === 'signup' ? gold : 'rgba(245,240,232,.6)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}>Kreiraj nalog</button>
+                    <button type="button" onClick={() => setClientAuthMode('login')} style={{ background: clientAuthMode === 'login' ? goldFaint : 'transparent', color: clientAuthMode === 'login' ? gold : 'rgba(245,240,232,.6)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}>Prijava</button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }} className="forma-grid">
+                    {clientAuthMode === 'signup' && (
+                      <input style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Ime i prezime" value={clientForma.ime} onChange={e => setClientForma({ ...clientForma, ime: e.target.value })} />
+                    )}
+                    <input style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Telefon" value={clientForma.telefon} onChange={e => setClientForma({ ...clientForma, telefon: e.target.value })} />
+                    <input type="email" style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Email" value={clientForma.email} onChange={e => setClientForma({ ...clientForma, email: e.target.value })} />
+                    <input type="password" style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Lozinka" value={clientForma.lozinka} onChange={e => setClientForma({ ...clientForma, lozinka: e.target.value })} />
+                  </div>
+                  <button type="button" onClick={() => void handleClientAuth()} disabled={clientAuthLoading} style={{ background: `linear-gradient(135deg,${gold},#b8960c)`, color: '#0a0a0a', border: 'none', padding: '12px 18px', borderRadius: '10px', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}>
+                    {clientAuthLoading ? 'Molimo sačekajte...' : (clientAuthMode === 'signup' ? 'Kreiraj kupčki nalog' : 'Prijavi se')}
+                  </button>
+                </>
+              ) : (
+                <div style={{ fontSize: '13px', color: 'rgba(245,240,232,.7)', lineHeight: 1.6 }}>
+                  <p style={{ marginBottom: '10px' }}>Zakazujete kao gost — nije potreban nalog. Možete se kasnije prijaviti da pratite termine i lojalnost.</p>
+                  <button
+                    type="button"
+                    onClick={() => setGuestAuthCollapsed(false)}
+                    style={{ background: 'transparent', color: gold, border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    Prijava ili registracija kao kupac
+                  </button>
+                </div>
+              )}
             </>
           ) : (
-            <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.65)' }}>Prijavljeni ste kao klijent ovog salona. Uskoro: moji termini, lojalnost i inbox notifikacija.</p>
+            <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.65)' }}>Prijavljeni ste kao kupac ovog salona. Uskoro: moji termini, lojalnost i inbox notifikacija.</p>
           )}
 
           {clientAuthError && (

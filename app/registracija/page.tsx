@@ -31,7 +31,7 @@ export default function Registracija() {
     setGreska('')
     try {
       const email = forma.email.trim()
-      const r = await authPasswordViaApi('signup', email, forma.lozinka)
+      const r = await authPasswordViaApi('signup', email, forma.lozinka, { app_role: 'salon_owner' })
       if (r.error) {
         setGreska(formatAuthError(r.error))
         setLoading(false)
