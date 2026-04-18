@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { APP_ROLE_KEY, getAppRole } from '@/lib/user-role'
+import { getAppRole } from '@/lib/user-role'
 
 interface Usluga {
   id: string
@@ -44,7 +44,6 @@ interface BookingNotification {
   status: string
 }
 
-type ClientAuthMode = 'login' | 'signup'
 type PageView = 'booking' | 'profile'
 
 interface ClientSummary {
@@ -114,18 +113,13 @@ export default function SalonLanding() {
   const [greska, setGreska] = useState('')
   const [statusLoading, setStatusLoading] = useState(false)
   const [bookingNotif, setBookingNotif] = useState<BookingNotification | null>(null)
-  const [clientAuthMode, setClientAuthMode] = useState<ClientAuthMode>('signup')
-  const [clientAuthLoading, setClientAuthLoading] = useState(false)
-  const [clientAuthError, setClientAuthError] = useState('')
   const [clientAuthSuccess, setClientAuthSuccess] = useState('')
   const [klijentUlogovan, setKlijentUlogovan] = useState(false)
-  const [vlasnikOvogSalona, setVlasnikOvogSalona] = useState(false)
   const [guestAuthCollapsed, setGuestAuthCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [activeView, setActiveView] = useState<PageView>('booking')
   const [clientSummary, setClientSummary] = useState<ClientSummary | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
-  const [clientForma, setClientForma] = useState({ ime: '', telefon: '', email: '', lozinka: '' })
   const [forma, setForma] = useState({ ime: '', telefon: '', datum: '', vrijeme: '', napomena: '' })
 
   // Učitaj podatke pri učitavanju stranice
@@ -183,12 +177,9 @@ export default function SalonLanding() {
     const applyUser = (user: { id: string; user_metadata?: Record<string, unknown> } | null) => {
       if (!user) {
         setKlijentUlogovan(false)
-        setVlasnikOvogSalona(false)
         return
       }
-      const ownerHere = user.id === salon.id
-      setVlasnikOvogSalona(ownerHere)
-      if (ownerHere) {
+      if (user.id === salon.id) {
         setKlijentUlogovan(false)
         return
       }
@@ -327,6 +318,7 @@ export default function SalonLanding() {
   const gold = salon.boja_primarna || '#d4af37'
   const goldFaint = 'rgba(212,175,55,.12)'
   const goldBorder = 'rgba(212,175,55,.25)'
+  const kupacReturnEnc = encodeURIComponent(`/salon/${slug}`)
 
   const locationQuery = salon ? buildLocationQuery(salon) : ''
   const mapsUrl = locationQuery ? buildMapsEmbedSrc(locationQuery) : ''
@@ -374,86 +366,9 @@ export default function SalonLanding() {
     setLoading(false)
   }
 
-  const poveziKlijentNalog = async (ime: string, telefon: string, email: string) => {
-    const { data: sessionData } = await supabase.auth.getSession()
-    const token = sessionData.session?.access_token
-    if (!token) throw new Error('Nije pronađena klijentska sesija.')
-
-    const res = await fetch('/api/clients/link', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        auth_token: token,
-        salon_id: salon.id,
-        ime,
-        telefon,
-        email,
-      }),
-    })
-    const data = await res.json()
-    if (data.error) throw new Error(data.error)
-  }
-
-  const handleClientAuth = async () => {
-    if (!clientForma.email || !clientForma.lozinka || !clientForma.telefon) {
-      setClientAuthError('Email, lozinka i telefon su obavezni.')
-      return
-    }
-    if (clientAuthMode === 'signup' && !clientForma.ime.trim()) {
-      setClientAuthError('Unesite ime i prezime.')
-      return
-    }
-
-    setClientAuthLoading(true)
-    setClientAuthError('')
-    setClientAuthSuccess('')
-
-    try {
-      if (clientAuthMode === 'signup') {
-        const { error: signUpError } = await supabase.auth.signUp({
-          email: clientForma.email.trim(),
-          password: clientForma.lozinka,
-          options: { data: { [APP_ROLE_KEY]: 'customer' } },
-        })
-        if (signUpError) throw new Error(signUpError.message)
-
-        const { error: signInAfterSignupError } = await supabase.auth.signInWithPassword({
-          email: clientForma.email.trim(),
-          password: clientForma.lozinka,
-        })
-        if (signInAfterSignupError) throw new Error(signInAfterSignupError.message)
-      } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: clientForma.email.trim(),
-          password: clientForma.lozinka,
-        })
-        if (signInError) throw new Error(signInError.message)
-      }
-
-      await poveziKlijentNalog(clientForma.ime.trim() || 'Klijent', clientForma.telefon.trim(), clientForma.email.trim())
-
-      const { data: userData } = await supabase.auth.getUser()
-      const u = userData.user
-      if (u && u.id !== salon.id && getAppRole(u) !== 'salon_owner') {
-        await supabase.auth.updateUser({ data: { [APP_ROLE_KEY]: 'customer' } })
-      }
-
-      setKlijentUlogovan(true)
-      setVlasnikOvogSalona(false)
-      setClientAuthSuccess(clientAuthMode === 'signup' ? 'Kupčki nalog je kreiran i povezan.' : 'Uspješna prijava kao kupac.')
-      setActiveView('profile')
-      await ucitajClientSummary()
-    } catch (error) {
-      setClientAuthError(error instanceof Error ? error.message : 'Neuspjela autentifikacija klijenta.')
-    } finally {
-      setClientAuthLoading(false)
-    }
-  }
-
   const handleClientLogout = async () => {
     await supabase.auth.signOut()
     setKlijentUlogovan(false)
-    setVlasnikOvogSalona(false)
     setGuestAuthCollapsed(false)
     setClientSummary(null)
     setClientAuthSuccess('Odjavljeni ste.')
@@ -705,19 +620,16 @@ export default function SalonLanding() {
 
       <div className="content-pad" style={{ maxWidth: '900px', margin: '0 auto', padding: '0 48px 60px' }}>
         <div style={{ marginTop: '28px', background: '#161616', border: `0.5px solid ${goldBorder}`, borderRadius: '18px', padding: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
             <div>
-              <h3 style={{ fontSize: '16px', fontWeight: 500, color: '#f5f0e8' }}>Kupac — prijava ili registracija</h3>
+              <h3 style={{ fontSize: '16px', fontWeight: 500, color: '#f5f0e8' }}>Kupac — nalog</h3>
               <p style={{ fontSize: '12px', color: 'rgba(245,240,232,.45)', marginTop: '6px', lineHeight: 1.5 }}>
-                Za kupce i goste. Vlasnici salona koriste{' '}
-                <Link href="/login" style={{ color: gold }}>prijavu</Link>
-                {' '}i{' '}
-                <Link href="/registracija" style={{ color: gold }}>registraciju</Link>
-                {' '}za posao.
+                Registrujte se ili prijavite kao kupac da pratite termine i lojalnost kod ovog salona.
               </p>
             </div>
             {klijentUlogovan && (
               <button
+                type="button"
                 onClick={handleClientLogout}
                 style={{ background: 'transparent', color: 'rgba(245,240,232,.7)', border: '0.5px solid rgba(245,240,232,.2)', padding: '8px 12px', borderRadius: '10px', fontSize: '12px', cursor: 'pointer' }}
               >
@@ -726,66 +638,68 @@ export default function SalonLanding() {
             )}
           </div>
 
-          {vlasnikOvogSalona ? (
-            <div style={{ fontSize: '13px', color: 'rgba(245,240,232,.75)', lineHeight: 1.6 }}>
-              <p style={{ marginBottom: '12px' }}>Prijavljeni ste kao vlasnik ovog salona — ovo nije kupčki nalog.</p>
-              <Link
-                href="/dashboard"
-                style={{
-                  display: 'inline-block',
-                  background: `linear-gradient(135deg,${gold},#b8960c)`,
-                  color: '#0a0a0a',
-                  padding: '10px 16px',
-                  borderRadius: '10px',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  textDecoration: 'none',
-                }}
-              >
-                Idi na kontrolnu tablu
-              </Link>
-            </div>
-          ) : !klijentUlogovan ? (
+          {!klijentUlogovan ? (
             <>
               {!guestAuthCollapsed ? (
                 <>
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '10px', marginBottom: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
                     <button
                       type="button"
                       onClick={() => {
                         setGuestAuthCollapsed(true)
                         setActiveView('booking')
                       }}
-                      style={{ background: 'transparent', color: 'rgba(245,240,232,.75)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
+                      style={{ background: 'transparent', color: 'rgba(245,240,232,.75)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '10px 14px', fontSize: '13px', cursor: 'pointer' }}
                     >
                       Nastavi kao gost
                     </button>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-                    <button type="button" onClick={() => setClientAuthMode('signup')} style={{ background: clientAuthMode === 'signup' ? goldFaint : 'transparent', color: clientAuthMode === 'signup' ? gold : 'rgba(245,240,232,.6)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}>Kreiraj nalog</button>
-                    <button type="button" onClick={() => setClientAuthMode('login')} style={{ background: clientAuthMode === 'login' ? goldFaint : 'transparent', color: clientAuthMode === 'login' ? gold : 'rgba(245,240,232,.6)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}>Prijava</button>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'stretch' }}>
+                    <Link
+                      href={`/kupac/registracija?next=${kupacReturnEnc}`}
+                      style={{
+                        flex: '1 1 140px',
+                        textAlign: 'center',
+                        background: `linear-gradient(135deg,${gold},#b8960c)`,
+                        color: '#0a0a0a',
+                        border: 'none',
+                        padding: '12px 16px',
+                        borderRadius: '10px',
+                        fontWeight: 600,
+                        fontSize: '13px',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      Registracija kupca
+                    </Link>
+                    <Link
+                      href={`/kupac/prijava?next=${kupacReturnEnc}`}
+                      style={{
+                        flex: '1 1 140px',
+                        textAlign: 'center',
+                        background: 'transparent',
+                        color: gold,
+                        border: `0.5px solid ${goldBorder}`,
+                        padding: '12px 16px',
+                        borderRadius: '10px',
+                        fontWeight: 600,
+                        fontSize: '13px',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      Prijava kupca
+                    </Link>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }} className="forma-grid">
-                    {clientAuthMode === 'signup' && (
-                      <input style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Ime i prezime" value={clientForma.ime} onChange={e => setClientForma({ ...clientForma, ime: e.target.value })} />
-                    )}
-                    <input style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Telefon" value={clientForma.telefon} onChange={e => setClientForma({ ...clientForma, telefon: e.target.value })} />
-                    <input type="email" style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Email" value={clientForma.email} onChange={e => setClientForma({ ...clientForma, email: e.target.value })} />
-                    <input type="password" style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }} placeholder="Lozinka" value={clientForma.lozinka} onChange={e => setClientForma({ ...clientForma, lozinka: e.target.value })} />
-                  </div>
-                  <button type="button" onClick={() => void handleClientAuth()} disabled={clientAuthLoading} style={{ background: `linear-gradient(135deg,${gold},#b8960c)`, color: '#0a0a0a', border: 'none', padding: '12px 18px', borderRadius: '10px', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}>
-                    {clientAuthLoading ? 'Molimo sačekajte...' : (clientAuthMode === 'signup' ? 'Kreiraj kupčki nalog' : 'Prijavi se')}
-                  </button>
                 </>
               ) : (
                 <div style={{ fontSize: '13px', color: 'rgba(245,240,232,.7)', lineHeight: 1.6 }}>
-                  <p style={{ marginBottom: '10px' }}>Zakazujete kao gost — nije potreban nalog. Možete se kasnije prijaviti da pratite termine i lojalnost.</p>
+                  <p style={{ marginBottom: '10px' }}>Zakazujete kao gost — nije potreban nalog. Kasnije se možete registrovati kao kupac da pratite termine i lojalnost.</p>
                   <button
                     type="button"
                     onClick={() => setGuestAuthCollapsed(false)}
                     style={{ background: 'transparent', color: gold, border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
                   >
-                    Prijava ili registracija kao kupac
+                    Nazad na kupovinski nalog
                   </button>
                 </div>
               )}
@@ -794,11 +708,6 @@ export default function SalonLanding() {
             <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.65)' }}>Prijavljeni ste kao kupac ovog salona. Uskoro: moji termini, lojalnost i inbox notifikacija.</p>
           )}
 
-          {clientAuthError && (
-            <div style={{ marginTop: '10px', background: 'rgba(220,50,50,.1)', border: '0.5px solid rgba(220,50,50,.3)', borderRadius: '10px', padding: '10px 12px', fontSize: '12px', color: '#ff6b6b' }}>
-              ⚠️ {clientAuthError}
-            </div>
-          )}
           {clientAuthSuccess && (
             <div style={{ marginTop: '10px', background: 'rgba(50,200,100,.1)', border: '0.5px solid rgba(50,200,100,.3)', borderRadius: '10px', padding: '10px 12px', fontSize: '12px', color: '#4caf81' }}>
               ✓ {clientAuthSuccess}

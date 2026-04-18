@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { authPasswordViaApi } from '@/lib/auth-via-api'
-import { supabase } from '@/lib/supabase'
+import { waitForClientSession } from '@/lib/wait-client-session'
 
 const formatAuthError = (message: string) => {
   const m = message.toLowerCase()
@@ -37,7 +37,7 @@ export default function Login() {
       setLoading(false)
       return
     }
-    const { data: { session } } = await supabase.auth.getSession()
+    const session = await waitForClientSession()
     if (!session) {
       setGreska('Prijava nije završila sesiju. Pokušaj ponovo ili potvrdi email u Supabase podešavanjima.')
       setLoading(false)
