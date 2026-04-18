@@ -1,9 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { getPublicSupabaseEnv } from '@/lib/env-supabase'
-import { SUPABASE_PUBLIC_ENV_MISSING, SUPABASE_SERVICE_ROLE_MISSING } from '@/lib/supabase-service-role-hint'
-
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+import { SUPABASE_PUBLIC_ENV_MISSING } from '@/lib/supabase-service-role-hint'
 
 function getAnonClient() {
   const { url: supabaseUrl, anonKey: supabaseAnonKey, ok } = getPublicSupabaseEnv()
@@ -13,26 +11,29 @@ function getAnonClient() {
   })
 }
 
-function getServiceClient() {
-  const { url: supabaseUrl, ok } = getPublicSupabaseEnv()
-  if (!ok || !supabaseServiceRoleKey) return null
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+function getUserClient(authToken: string) {
+  const { url: supabaseUrl, anonKey: supabaseAnonKey, ok } = getPublicSupabaseEnv()
+  if (!ok) return null
+  return createClient(supabaseUrl, supabaseAnonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      headers: { Authorization: `Bearer ${authToken}` },
+    },
   })
 }
 
+/**
+ * Profil kupca — samo JWT + RLS (policy termini_client_select_own nakon migracije 2026-04-20).
+ */
 export async function GET(request: Request) {
   try {
     const { ok: envOk } = getPublicSupabaseEnv()
     if (!envOk) {
       return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
     }
-    if (!supabaseServiceRoleKey?.trim()) {
-      return NextResponse.json({ error: SUPABASE_SERVICE_ROLE_MISSING }, { status: 500 })
-    }
+
     const anonClient = getAnonClient()
-    const serviceClient = getServiceClient()
-    if (!anonClient || !serviceClient) {
+    if (!anonClient) {
       return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
     }
 
@@ -48,7 +49,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Nevažeća sesija.' }, { status: 401 })
     }
 
-    const { data: clientData, error: clientError } = await serviceClient
+    const userClient = getUserClient(authToken)
+    if (!userClient) {
+      return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
+    }
+
+    const { data: clientData, error: clientError } = await userClient
       .from('salon_clients')
       .select('id, ime, telefon, email')
       .eq('salon_id', salonId)
@@ -58,7 +64,7 @@ export async function GET(request: Request) {
     if (clientError) return NextResponse.json({ error: clientError.message }, { status: 500 })
     if (!clientData) return NextResponse.json({ error: 'Klijent nije povezan sa ovim salonom.' }, { status: 404 })
 
-    const { data: appointments, error: appointmentsError } = await serviceClient
+    const { data: appointments, error: appointmentsError } = await userClient
       .from('termini')
       .select('id, datum_vrijeme, status, ime_klijenta')
       .eq('salon_id', salonId)
@@ -67,7 +73,7 @@ export async function GET(request: Request) {
 
     if (appointmentsError) return NextResponse.json({ error: appointmentsError.message }, { status: 500 })
 
-    const { data: loyaltyData, error: loyaltyError } = await serviceClient
+    const { data: loyaltyData, error: loyaltyError } = await userClient
       .from('loyalty_accounts')
       .select('visits_count, progress_percent, reward_ready')
       .eq('salon_id', salonId)
