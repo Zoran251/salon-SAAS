@@ -93,6 +93,35 @@ function KupacRegistracijaForm() {
       return
     }
 
+    const { data: userData } = await supabase.auth.getUser()
+    const u = userData.user
+    if (!u?.id) {
+      setGreska('Korisnik nije dostupan nakon registracije. Pokušaj ponovo.')
+      setLoading(false)
+      return
+    }
+
+    // Javna tabela kupac_nalozi — svi signup podaci kupca (pored auth.users).
+    const { error: kupacTabErr } = await supabase.from('kupac_nalozi').upsert(
+      {
+        auth_user_id: u.id,
+        email,
+        ime,
+        telefon,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'auth_user_id' },
+    )
+    if (kupacTabErr) {
+      setGreska(
+        kupacTabErr.message.includes('relation') || kupacTabErr.message.includes('does not exist')
+          ? 'U Supabase pokreni migraciju za tabelu kupac_nalozi (db/migrations/2026-04-18_kupac_nalozi.sql).'
+          : kupacTabErr.message,
+      )
+      setLoading(false)
+      return
+    }
+
     const slug = parseSalonSlugFromPath(nextPath)
     if (slug) {
       const { data: salonRow, error: salonErr } = await supabase.from('saloni').select('id').eq('slug', slug).maybeSingle()
@@ -104,15 +133,13 @@ function KupacRegistracijaForm() {
           email,
         })
         if (!link.ok) {
-          setGreska(link.error || 'Nalog je kreiran, ali povezivanje s salonom nije uspjelo.')
+          setGreska(link.error || 'Kupac je snimljen, ali povezivanje s salonom nije uspjelo.')
           setLoading(false)
           return
         }
       }
     }
 
-    const { data: userData } = await supabase.auth.getUser()
-    const u = userData.user
     if (u && getAppRole(u) !== 'salon_owner') {
       await supabase.auth.updateUser({ data: { [APP_ROLE_KEY]: 'customer' } })
     }

@@ -140,6 +140,28 @@ export type Database = {
         Update: Partial<Database['public']['Tables']['lojalnost']['Insert']>
         Relationships: []
       }
+      kupac_nalozi: {
+        Row: {
+          id: string
+          auth_user_id: string
+          email: string
+          ime: string
+          telefon: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          auth_user_id: string
+          email: string
+          ime: string
+          telefon: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['kupac_nalozi']['Insert']>
+        Relationships: []
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
