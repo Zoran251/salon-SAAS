@@ -1,6 +1,5 @@
--- Povezivanje kupca sa salonom bez SUPABASE_SERVICE_ROLE_KEY:
--- RPC sa security definer izvršava insert/update u salon_clients.
--- + SELECT na termini za ulogovanog klijenta (clients/me API).
+-- Samo ovaj SQL u Supabase → SQL Editor (ne TypeScript iz app/api).
+-- Povezivanje kupca: funkcija link_salon_client + RLS za termine.
 
 begin;
 
@@ -20,8 +19,8 @@ declare
   v_telefon text := trim(coalesce(p_telefon, ''));
   v_ime text := coalesce(nullif(trim(coalesce(p_ime, '')), ''), 'Klijent');
   v_email text := nullif(trim(coalesce(p_email, '')), '');
-  v_id uuid;
-  v_existing_auth uuid;
+  r_client_id uuid;
+  r_existing_auth uuid;
 begin
   if v_uid is null then
     raise exception 'Niste prijavljeni.';
@@ -33,36 +32,35 @@ begin
     raise exception 'Salon nije pronađen.';
   end if;
 
-  select c.id, c.auth_user_id into v_id, v_existing_auth
+  select c.id, c.auth_user_id into r_client_id, r_existing_auth
   from public.salon_clients c
   where c.salon_id = p_salon_id and c.telefon = v_telefon
   limit 1;
 
-  if v_id is not null then
-    if v_existing_auth is not null and v_existing_auth <> v_uid then
+  if r_client_id is not null then
+    if r_existing_auth is not null and r_existing_auth <> v_uid then
       raise exception 'Ovaj telefon je već povezan sa drugim nalogom.';
     end if;
-    update public.salon_clients
+    update public.salon_clients sc
     set
       auth_user_id = v_uid,
       ime = v_ime,
-      email = coalesce(v_email, email),
+      email = coalesce(v_email, sc.email),
       updated_at = now()
-    where id = v_id;
-    return v_id;
+    where sc.id = r_client_id;
+    return r_client_id;
   end if;
 
   insert into public.salon_clients (salon_id, auth_user_id, ime, telefon, email)
   values (p_salon_id, v_uid, v_ime, v_telefon, v_email)
-  returning id into v_id;
+  returning id into r_client_id;
 
-  return v_id;
+  return r_client_id;
 end;
 $$;
 
 grant execute on function public.link_salon_client(uuid, text, text, text) to authenticated;
 
--- Klijent čita svoje termine (API /api/clients/me bez service role)
 drop policy if exists termini_client_select_own on public.termini;
 create policy termini_client_select_own
 on public.termini
