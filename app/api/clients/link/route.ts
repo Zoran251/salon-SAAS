@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { getPublicSupabaseEnv } from '@/lib/env-supabase'
+import { SUPABASE_PUBLIC_ENV_MISSING, SUPABASE_SERVICE_ROLE_MISSING } from '@/lib/supabase-service-role-hint'
 
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
@@ -22,14 +23,19 @@ function getServiceClient() {
 
 export async function POST(request: Request) {
   try {
+    const { ok: envOk } = getPublicSupabaseEnv()
+    if (!envOk) {
+      return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
+    }
+    if (!supabaseServiceRoleKey?.trim()) {
+      return NextResponse.json({ error: SUPABASE_SERVICE_ROLE_MISSING }, { status: 500 })
+    }
+
     const anonClient = getAnonClient()
     const serviceClient = getServiceClient()
 
     if (!anonClient || !serviceClient) {
-      return NextResponse.json(
-        { error: 'Server konfiguracija nije potpuna za povezivanje klijentskog naloga.' },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
     }
 
     const body = await request.json()
