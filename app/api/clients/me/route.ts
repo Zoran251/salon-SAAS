@@ -23,7 +23,7 @@ function getUserClient(authToken: string) {
 }
 
 /**
- * Profil kupca — samo JWT + RLS (policy termini_client_select_own nakon migracije 2026-04-20).
+ * Profil kupca + obaveštenja — JWT + RLS.
  */
 export async function GET(request: Request) {
   try {
@@ -82,6 +82,15 @@ export async function GET(request: Request) {
 
     if (loyaltyError) return NextResponse.json({ error: loyaltyError.message }, { status: 500 })
 
+    const { data: notifRows, error: notifErr } = await userClient
+      .from('notifications')
+      .select('id, title, body, tip, created_at, read_at, appointment_id')
+      .eq('client_id', clientData.id)
+      .order('created_at', { ascending: false })
+      .limit(30)
+
+    if (notifErr) return NextResponse.json({ error: notifErr.message }, { status: 500 })
+
     const allAppointments = appointments || []
     const stats = {
       ukupnoTermina: allAppointments.length,
@@ -94,7 +103,103 @@ export async function GET(request: Request) {
       stats,
       loyalty: loyaltyData || { visits_count: 0, progress_percent: 0, reward_ready: false },
       appointments: allAppointments.slice(0, 6),
+      notifications: notifRows || [],
     })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Greška servera.'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
+
+/**
+ * Ažuriranje podataka kupca ili označavanje obaveštenja kao pročitanog.
+ */
+export async function PATCH(request: Request) {
+  try {
+    const { ok: envOk } = getPublicSupabaseEnv()
+    if (!envOk) {
+      return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
+    }
+
+    const anonClient = getAnonClient()
+    if (!anonClient) {
+      return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
+    }
+
+    const url = new URL(request.url)
+    const authToken = url.searchParams.get('auth_token')
+    const salonId = url.searchParams.get('salon_id')
+    if (!authToken || !salonId) {
+      return NextResponse.json({ error: 'Nedostaju auth token ili salon_id.' }, { status: 400 })
+    }
+
+    const { data: userData, error: userError } = await anonClient.auth.getUser(authToken)
+    if (userError || !userData.user) {
+      return NextResponse.json({ error: 'Nevažeća sesija.' }, { status: 401 })
+    }
+
+    const userClient = getUserClient(authToken)
+    if (!userClient) {
+      return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
+    }
+
+    const { data: clientData, error: clientError } = await userClient
+      .from('salon_clients')
+      .select('id')
+      .eq('salon_id', salonId)
+      .eq('auth_user_id', userData.user.id)
+      .maybeSingle()
+
+    if (clientError) return NextResponse.json({ error: clientError.message }, { status: 500 })
+    if (!clientData) return NextResponse.json({ error: 'Klijent nije povezan sa ovim salonom.' }, { status: 404 })
+
+    const body = (await request.json()) as {
+      ime?: string
+      telefon?: string
+      email?: string | null
+      mark_notification_read?: string
+    }
+
+    if (typeof body.mark_notification_read === 'string' && body.mark_notification_read.trim()) {
+      const nid = body.mark_notification_read.trim()
+      const { error: upErr } = await userClient
+        .from('notifications')
+        .update({ read_at: new Date().toISOString() })
+        .eq('id', nid)
+        .eq('client_id', clientData.id)
+
+      if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 })
+      return NextResponse.json({ success: true })
+    }
+
+    const ime = typeof body.ime === 'string' ? body.ime.trim() : undefined
+    const telefon = typeof body.telefon === 'string' ? body.telefon.trim() : undefined
+    const email =
+      body.email === null || body.email === undefined
+        ? undefined
+        : typeof body.email === 'string'
+          ? body.email.trim() || null
+          : undefined
+
+    if (ime === undefined && telefon === undefined && email === undefined) {
+      return NextResponse.json({ error: 'Nema podataka za izmenu.' }, { status: 400 })
+    }
+
+    const patch: Record<string, string | null> = {}
+    if (ime !== undefined) {
+      if (!ime) return NextResponse.json({ error: 'Ime ne može biti prazno.' }, { status: 400 })
+      patch.ime = ime
+    }
+    if (telefon !== undefined) {
+      if (!telefon) return NextResponse.json({ error: 'Telefon ne može biti prazan.' }, { status: 400 })
+      patch.telefon = telefon
+    }
+    if (email !== undefined) patch.email = email
+
+    const { error: updErr } = await userClient.from('salon_clients').update(patch).eq('id', clientData.id)
+
+    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })
+    return NextResponse.json({ success: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Greška servera.'
     return NextResponse.json({ error: message }, { status: 500 })
