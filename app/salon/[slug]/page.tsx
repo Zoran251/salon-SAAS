@@ -149,6 +149,10 @@ export default function SalonLanding() {
   const notifBellRef = useRef<HTMLDivElement | null>(null)
   const knownNotifIdsRef = useRef<Set<string>>(new Set())
   const notifPrimedRef = useRef(false)
+  const uslugeAnchorRef = useRef<HTMLDivElement | null>(null)
+  const podaciAnchorRef = useRef<HTMLDivElement | null>(null)
+  const kupacMenuRef = useRef<HTMLDivElement | null>(null)
+  const [kupacMenuOpen, setKupacMenuOpen] = useState(false)
 
   // Učitaj podatke pri učitavanju stranice
   useEffect(() => {
@@ -330,6 +334,24 @@ export default function SalonLanding() {
   }, [notifPanelOpen])
 
   useEffect(() => {
+    if (!kupacMenuOpen) return
+    const close = (e: MouseEvent) => {
+      if (kupacMenuRef.current && !kupacMenuRef.current.contains(e.target as Node)) {
+        setKupacMenuOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setKupacMenuOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [kupacMenuOpen])
+
+  useEffect(() => {
     if (!inAppToast) return
     const t = window.setTimeout(() => setInAppToast(null), 8000)
     return () => window.clearTimeout(t)
@@ -479,6 +501,7 @@ export default function SalonLanding() {
     setGuestAuthCollapsed(false)
     setClientSummary(null)
     setProfilUredi(false)
+    setKupacMenuOpen(false)
     setClientAuthSuccess('Odjavljeni ste.')
   }
 
@@ -543,548 +566,38 @@ export default function SalonLanding() {
     }
   }
 
-  return (
-    <main style={{ background: '#0a0a0a', minHeight: '100vh', color: '#f5f0e8', fontFamily: 'sans-serif' }}>
-      <style>{`
-        @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes salonToastIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        *{box-sizing:border-box;margin:0;padding:0}
-        input,textarea{outline:none;font-family:sans-serif;color:#f5f0e8}
-        input:focus,textarea:focus{border-color:rgba(212,175,55,.6)!important}
-        .usluga-card{cursor:pointer;background:#161616;border:0.5px solid rgba(212,175,55,.15);border-radius:16px;padding:20px;transition:all .3s}
-        .usluga-card:hover{border-color:rgba(212,175,55,.4);transform:translateY(-2px)}
-        .usluga-active{border-color:#d4af37!important;background:rgba(212,175,55,.08)!important}
-        .salon-sticky-nav{
-          position:sticky;top:0;z-index:50;
-          background:rgba(8,8,8,.88);
-          backdrop-filter:saturate(140%) blur(14px);
-          -webkit-backdrop-filter:saturate(140%) blur(14px);
-          border-bottom:0.5px solid rgba(212,175,55,.22);
-          box-shadow:0 12px 40px rgba(0,0,0,.35);
-        }
-        .salon-nav-inner{
-          max-width:900px;margin:0 auto;
-          padding:12px 48px;
-          display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
-        }
-        .salon-nav-brand{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
-        .salon-nav-brand-mark{
-          width:36px;height:36px;border-radius:12px;flex-shrink:0;
-          display:flex;align-items:center;justify-content:center;
-          font-size:15px;font-weight:700;color:#0a0a0a;
-          border:0.5px solid rgba(212,175,55,.35);
-        }
-        .salon-nav-brand-text{font-size:14px;font-weight:600;color:#f5f0e8;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .salon-nav-pills{display:none;align-items:center;gap:8px;flex-wrap:wrap}
-        .salon-nav-burger-only{display:inline-flex;align-items:center;justify-content:center}
-        .salon-nav-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
-        @media(min-width:769px){
-          .salon-nav-pills{display:flex}
-          .salon-nav-burger-only{display:none!important}
-          .salon-mobile-sheet{display:none!important}
-        }
-        @media(max-width:768px){
-          .salon-nav-inner{padding:10px 20px}
-          .salon-mobile-sheet{padding:0 20px 12px!important}
-          .hero-section{padding:36px 20px 44px!important}
-          .hero-title{font-size:28px!important}
-          .content-pad{padding:0 20px 40px!important}
-          .usluge-grid{grid-template-columns:1fr!important}
-          .forma-grid{grid-template-columns:1fr!important}
-        }
-      `}</style>
+  const scrollToUsluge = () => {
+    setActiveView('booking')
+    setMobileMenuOpen(false)
+    setNotifPanelOpen(false)
+    setKupacMenuOpen(false)
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        uslugeAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    })
+  }
 
-      {/* Sticky navigacija — iznad hero-a; na mobilnom samo burger */}
-      <header className="salon-sticky-nav">
-        <div className="salon-nav-inner">
-          <div className="salon-nav-brand">
-            {salon.logo_url ? (
-              <img
-                src={salon.logo_url}
-                alt=""
-                width={36}
-                height={36}
-                style={{ borderRadius: 12, objectFit: 'cover', border: '0.5px solid rgba(212,175,55,.35)' }}
-              />
-            ) : (
-              <div
-                className="salon-nav-brand-mark"
-                style={{ background: `linear-gradient(135deg,${gold},#b8960c)` }}
-              >
-                {salon.naziv.charAt(0)}
-              </div>
-            )}
-            <span className="salon-nav-brand-text">{salon.naziv}</span>
-          </div>
+  const scrollToPodaci = () => {
+    setActiveView('profile')
+    setMobileMenuOpen(false)
+    setNotifPanelOpen(false)
+    setKupacMenuOpen(false)
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        podaciAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    })
+  }
 
-          <div className="salon-nav-pills">
-            <button
-              type="button"
-              onClick={() => setActiveView('booking')}
-              style={{
-                background: activeView === 'booking' ? 'rgba(212,175,55,.12)' : 'transparent',
-                color: activeView === 'booking' ? gold : 'rgba(245,240,232,.65)',
-                border: `0.5px solid ${goldBorder}`,
-                borderRadius: 10,
-                padding: '8px 14px',
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'background .2s,color .2s',
-              }}
-            >
-              Zakazivanje
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveView('profile')}
-              style={{
-                position: 'relative',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                background: activeView === 'profile' ? 'rgba(212,175,55,.12)' : 'transparent',
-                color: activeView === 'profile' ? gold : 'rgba(245,240,232,.65)',
-                border: `0.5px solid ${goldBorder}`,
-                borderRadius: 10,
-                padding: '8px 14px',
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'background .2s,color .2s',
-              }}
-            >
-              Tvoj profil
-              {neprocitaneObavestenja > 0 ? (
-                <span
-                  style={{
-                    minWidth: 18,
-                    height: 18,
-                    padding: '0 5px',
-                    borderRadius: 9,
-                    background: '#c45c5c',
-                    color: '#fff',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {neprocitaneObavestenja > 9 ? '9+' : neprocitaneObavestenja}
-                </span>
-              ) : null}
-            </button>
-          </div>
-
-          <div className="salon-nav-actions">
-            {klijentUlogovan && (
-              <div ref={notifBellRef} style={{ position: 'relative' }}>
-                <button
-                  type="button"
-                  aria-haspopup="dialog"
-                  aria-expanded={notifPanelOpen}
-                  aria-label="Obaveštenja u aplikaciji"
-                  onClick={() => setNotifPanelOpen((o) => !o)}
-                  style={{
-                    position: 'relative',
-                    background: notifPanelOpen ? 'rgba(212,175,55,.12)' : '#141414',
-                    color: '#f5f0e8',
-                    border: `0.5px solid ${goldBorder}`,
-                    borderRadius: 10,
-                    padding: '8px 11px',
-                    fontSize: 15,
-                    lineHeight: 1,
-                    cursor: 'pointer',
-                  }}
-                >
-                  🔔
-                  {neprocitaneObavestenja > 0 ? (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: -4,
-                        right: -4,
-                        minWidth: 16,
-                        height: 16,
-                        padding: '0 4px',
-                        borderRadius: 8,
-                        background: '#c45c5c',
-                        color: '#fff',
-                        fontSize: 9,
-                        fontWeight: 700,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        border: '2px solid #0a0a0a',
-                      }}
-                    >
-                      {neprocitaneObavestenja > 9 ? '9+' : neprocitaneObavestenja}
-                    </span>
-                  ) : null}
-                </button>
-                {notifPanelOpen && (
-                  <div
-                    role="dialog"
-                    aria-label="Obaveštenja"
-                    style={{
-                      position: 'absolute',
-                      right: 0,
-                      top: 'calc(100% + 8px)',
-                      width: 'min(340px, calc(100vw - 32px))',
-                      maxHeight: 360,
-                      overflowY: 'auto',
-                      background: '#121212',
-                      border: `0.5px solid ${goldBorder}`,
-                      borderRadius: 14,
-                      boxShadow: '0 20px 50px rgba(0,0,0,.55)',
-                      zIndex: 60,
-                      padding: '12px 0',
-                    }}
-                  >
-                    <div style={{ padding: '0 14px 10px', borderBottom: `0.5px solid ${goldBorder}` }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#f5f0e8' }}>Obaveštenja</div>
-                      <div style={{ fontSize: 11, color: 'rgba(245,240,232,.45)', marginTop: 4 }}>
-                        Sve unutar aplikacije — osvežava se automatski.
-                      </div>
-                    </div>
-                    {(clientSummary?.notifications?.length ?? 0) === 0 ? (
-                      <p style={{ padding: '14px 16px', fontSize: 12, color: 'rgba(245,240,232,.45)' }}>
-                        Još nema obaveštenja o terminima.
-                      </p>
-                    ) : (
-                      <ul style={{ listStyle: 'none', margin: 0, padding: '8px 0' }}>
-                        {(clientSummary?.notifications ?? [])
-                          .slice()
-                          .sort((a, b) => b.created_at.localeCompare(a.created_at))
-                          .slice(0, 6)
-                          .map((n) => (
-                            <li
-                              key={n.id}
-                              style={{
-                                padding: '10px 14px',
-                                borderBottom: '0.5px solid rgba(245,240,232,.06)',
-                              }}
-                            >
-                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-                                <div style={{ minWidth: 0 }}>
-                                  <div style={{ fontSize: 13, fontWeight: 600, color: n.read_at ? 'rgba(245,240,232,.55)' : '#f5f0e8' }}>
-                                    {n.title}
-                                  </div>
-                                  <div style={{ fontSize: 11, color: 'rgba(245,240,232,.42)', marginTop: 4, lineHeight: 1.45 }}>
-                                    {skratiTekst(n.body, 120)}
-                                  </div>
-                                </div>
-                                {!n.read_at ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => void oznaciObavestenjeProcitano(n.id)}
-                                    style={{
-                                      flexShrink: 0,
-                                      fontSize: 10,
-                                      fontWeight: 600,
-                                      color: gold,
-                                      background: 'transparent',
-                                      border: `0.5px solid ${goldBorder}`,
-                                      borderRadius: 8,
-                                      padding: '4px 8px',
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    OK
-                                  </button>
-                                ) : null}
-                              </div>
-                            </li>
-                          ))}
-                      </ul>
-                    )}
-                    <div style={{ padding: '8px 14px 4px' }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNotifPanelOpen(false)
-                          setActiveView('profile')
-                        }}
-                        style={{
-                          width: '100%',
-                          textAlign: 'center',
-                          background: 'rgba(212,175,55,.1)',
-                          color: gold,
-                          border: `0.5px solid ${goldBorder}`,
-                          borderRadius: 10,
-                          padding: '10px 12px',
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Sva obaveštenja i profil →
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            {klijentUlogovan && (
-              <button
-                type="button"
-                onClick={() => void ucitajClientSummary()}
-                style={{
-                  background: 'transparent',
-                  color: 'rgba(245,240,232,.75)',
-                  border: '0.5px solid rgba(245,240,232,.18)',
-                  borderRadius: 10,
-                  padding: '8px 12px',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                }}
-              >
-                {summaryLoading ? '…' : 'Osveži'}
-              </button>
-            )}
-            <button
-              type="button"
-              className="salon-nav-burger-only"
-              onClick={() => setMobileMenuOpen((prev) => !prev)}
-              aria-expanded={mobileMenuOpen}
-              aria-label="Meni"
-              style={{
-                background: '#141414',
-                color: '#f5f0e8',
-                border: `0.5px solid ${goldBorder}`,
-                borderRadius: 10,
-                padding: '10px 12px',
-                fontSize: 16,
-                lineHeight: 1,
-                cursor: 'pointer',
-              }}
-            >
-              ☰
-            </button>
-          </div>
-        </div>
-
-        {mobileMenuOpen && (
-          <div
-            style={{
-              maxWidth: 900,
-              margin: '0 auto',
-              padding: '0 48px 12px',
-              display: 'flex',
-              gap: 8,
-              flexWrap: 'wrap',
-              borderTop: '0.5px solid rgba(212,175,55,.12)',
-              paddingTop: 12,
-            }}
-            className="salon-mobile-sheet"
-          >
-            <button
-              type="button"
-              onClick={() => {
-                setActiveView('booking')
-                setMobileMenuOpen(false)
-              }}
-              style={{
-                background: 'transparent',
-                color: 'rgba(245,240,232,.85)',
-                border: `0.5px solid ${goldBorder}`,
-                borderRadius: 10,
-                padding: '10px 14px',
-                fontSize: 13,
-                cursor: 'pointer',
-              }}
-            >
-              Zakazivanje
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveView('profile')
-                setMobileMenuOpen(false)
-              }}
-              style={{
-                position: 'relative',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                background: 'transparent',
-                color: 'rgba(245,240,232,.85)',
-                border: `0.5px solid ${goldBorder}`,
-                borderRadius: 10,
-                padding: '10px 14px',
-                fontSize: 13,
-                cursor: 'pointer',
-              }}
-            >
-              Tvoj profil
-              {neprocitaneObavestenja > 0 ? (
-                <span
-                  style={{
-                    minWidth: 18,
-                    height: 18,
-                    padding: '0 5px',
-                    borderRadius: 9,
-                    background: '#c45c5c',
-                    color: '#fff',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {neprocitaneObavestenja > 9 ? '9+' : neprocitaneObavestenja}
-                </span>
-              ) : null}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowForma(true)
-                setActiveView('booking')
-                setMobileMenuOpen(false)
-              }}
-              style={{
-                background: 'rgba(212,175,55,.1)',
-                color: gold,
-                border: `0.5px solid ${goldBorder}`,
-                borderRadius: 10,
-                padding: '10px 14px',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Novi termin
-            </button>
-          </div>
-        )}
-      </header>
-
-      {/* Hero — podaci o salonu */}
-      <div className="hero-section" style={{ background: 'linear-gradient(180deg,#0f0d08 0%,#111 32%,#1a1500 100%)', borderBottom: '0.5px solid rgba(212,175,55,.18)', padding: '52px 48px 56px', textAlign: 'center', animation: 'fadeUp .6s ease' }}>
-        {salon.logo_url
-          ? <img src={salon.logo_url} alt={salon.naziv} style={{ width: '80px', height: '80px', borderRadius: '20px', objectFit: 'cover', margin: '0 auto 20px', display: 'block', border: '0.5px solid rgba(212,175,55,.3)' }} />
-          : <div style={{ width: '80px', height: '80px', borderRadius: '20px', background: `linear-gradient(135deg,${gold},#b8960c)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 600, color: '#0a0a0a', margin: '0 auto 20px' }}>
-              {salon.naziv.charAt(0)}
-            </div>
-        }
-        {salon.tip && <div style={{ fontSize: '11px', color: gold, letterSpacing: '2px', marginBottom: '14px', fontWeight: 600 }}>{salon.tip.toUpperCase()}</div>}
-        <h1 className="hero-title" style={{ fontSize: '42px', fontWeight: 600, color: '#f5f0e8', marginBottom: '12px', letterSpacing: '-0.02em', lineHeight: 1.15 }}>{salon.naziv}</h1>
-        <div style={{ width: 56, height: 3, borderRadius: 2, margin: '0 auto 20px', background: `linear-gradient(90deg,transparent,${gold},transparent)` }} aria-hidden />
-        {salon.opis && <p style={{ fontSize: '16px', color: 'rgba(245,240,232,.58)', lineHeight: 1.75, maxWidth: '560px', margin: '0 auto 28px' }}>{salon.opis}</p>}
-        <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap', fontSize: '13px', color: 'rgba(245,240,232,.45)' }}>
-          {salon.grad && <span>📍 {salon.adresa ? `${salon.adresa}, ` : ''}{salon.grad}</span>}
-          {salon.telefon && <span>📞 {salon.telefon}</span>}
-          {salon.radno_od && salon.radno_do && <span>🕐 {salon.radno_od} — {salon.radno_do}</span>}
-        </div>
-      </div>
-
-      <div className="content-pad" style={{ maxWidth: '900px', margin: '0 auto', padding: '0 48px 60px' }}>
-        <div style={{ marginTop: '28px', background: '#161616', border: `0.5px solid ${goldBorder}`, borderRadius: '18px', padding: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
-            <div>
-              <h3 style={{ fontSize: '16px', fontWeight: 500, color: '#f5f0e8' }}>Kupac — nalog</h3>
-              <p style={{ fontSize: '12px', color: 'rgba(245,240,232,.45)', marginTop: '6px', lineHeight: 1.5 }}>
-                Registrujte se ili prijavite kao kupac da pratite termine i lojalnost kod ovog salona.
-              </p>
-            </div>
-            {klijentUlogovan && (
-              <button
-                type="button"
-                onClick={handleClientLogout}
-                style={{ background: 'transparent', color: 'rgba(245,240,232,.7)', border: '0.5px solid rgba(245,240,232,.2)', padding: '8px 12px', borderRadius: '10px', fontSize: '12px', cursor: 'pointer' }}
-              >
-                Odjavi se
-              </button>
-            )}
-          </div>
-
-          {!klijentUlogovan ? (
-            <>
-              {!guestAuthCollapsed ? (
-                <>
-                  <div style={{ display: 'flex', gap: '10px', marginBottom: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setGuestAuthCollapsed(true)
-                        setActiveView('booking')
-                      }}
-                      style={{ background: 'transparent', color: 'rgba(245,240,232,.75)', border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '10px 14px', fontSize: '13px', cursor: 'pointer' }}
-                    >
-                      Nastavi kao gost
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'stretch' }}>
-                    <Link
-                      href={`/kupac/registracija?next=${kupacReturnEnc}`}
-                      style={{
-                        flex: '1 1 140px',
-                        textAlign: 'center',
-                        background: `linear-gradient(135deg,${gold},#b8960c)`,
-                        color: '#0a0a0a',
-                        border: 'none',
-                        padding: '12px 16px',
-                        borderRadius: '10px',
-                        fontWeight: 600,
-                        fontSize: '13px',
-                        textDecoration: 'none',
-                      }}
-                    >
-                      Registracija kupca
-                    </Link>
-                    <Link
-                      href={`/kupac/prijava?next=${kupacReturnEnc}`}
-                      style={{
-                        flex: '1 1 140px',
-                        textAlign: 'center',
-                        background: 'transparent',
-                        color: gold,
-                        border: `0.5px solid ${goldBorder}`,
-                        padding: '12px 16px',
-                        borderRadius: '10px',
-                        fontWeight: 600,
-                        fontSize: '13px',
-                        textDecoration: 'none',
-                      }}
-                    >
-                      Prijava kupca
-                    </Link>
-                  </div>
-                </>
-              ) : (
-                <div style={{ fontSize: '13px', color: 'rgba(245,240,232,.7)', lineHeight: 1.6 }}>
-                  <p style={{ marginBottom: '10px' }}>Zakazujete kao gost — nije potreban nalog. Kasnije se možete registrovati kao kupac da pratite termine i lojalnost.</p>
-                  <button
-                    type="button"
-                    onClick={() => setGuestAuthCollapsed(false)}
-                    style={{ background: 'transparent', color: gold, border: `0.5px solid ${goldBorder}`, borderRadius: '10px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
-                  >
-                    Nazad na kupovinski nalog
-                  </button>
-                </div>
-              )}
-            </>
-          ) : (
-            <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.65)' }}>Prijavljeni ste kao kupac ovog salona. Uskoro: moji termini, lojalnost i inbox notifikacija.</p>
-          )}
-
-          {clientAuthSuccess && (
-            <div style={{ marginTop: '10px', background: 'rgba(50,200,100,.1)', border: '0.5px solid rgba(50,200,100,.3)', borderRadius: '10px', padding: '10px 12px', fontSize: '12px', color: '#4caf81' }}>
-              ✓ {clientAuthSuccess}
-            </div>
-          )}
-        </div>
-
+  const renderMainColumn = () => (
+      <>
         {activeView === 'booking' && klijentUlogovan && neprocitaneObavestenja > 0 && (
           <button
             type="button"
-            onClick={() => setActiveView('profile')}
+            onClick={() => scrollToPodaci()}
             style={{
-              marginTop: '16px',
+              marginTop: '28px',
               width: '100%',
               textAlign: 'left',
               padding: '14px 16px',
@@ -1105,8 +618,62 @@ export default function SalonLanding() {
           </button>
         )}
 
-        {activeView === 'profile' && klijentUlogovan && (
-          <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {activeView === 'profile' && (
+          <div ref={podaciAnchorRef} id="salon-tvoji-podaci" style={{ marginTop: 28, scrollMarginTop: 88 }}>
+            {!klijentUlogovan && (
+          <div
+            style={{
+              marginBottom: 20,
+              background: '#161616',
+              border: `0.5px solid ${goldBorder}`,
+              borderRadius: '18px',
+              padding: '22px',
+            }}
+          >
+            <h3 style={{ fontSize: '17px', fontWeight: 600, color: '#f5f0e8', marginBottom: '10px' }}>Tvoji podaci</h3>
+            <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.55)', lineHeight: 1.6, marginBottom: '16px' }}>
+              Prijavite se ili registrujte kao kupac (zlatna ikonica profila u meniju) da biste videli podatke, obaveštenja o terminima i lojalnost za ovaj salon.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <Link
+                href={`/kupac/registracija?next=${kupacReturnEnc}`}
+                style={{
+                  flex: '1 1 140px',
+                  textAlign: 'center',
+                  background: `linear-gradient(135deg,${gold},#b8960c)`,
+                  color: '#0a0a0a',
+                  padding: '12px 16px',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  textDecoration: 'none',
+                }}
+              >
+                Registracija
+              </Link>
+              <Link
+                href={`/kupac/prijava?next=${kupacReturnEnc}`}
+                style={{
+                  flex: '1 1 140px',
+                  textAlign: 'center',
+                  background: 'transparent',
+                  color: gold,
+                  border: `0.5px solid ${goldBorder}`,
+                  padding: '12px 16px',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  textDecoration: 'none',
+                }}
+              >
+                Prijava
+              </Link>
+            </div>
+          </div>
+            )}
+
+            {klijentUlogovan && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ background: '#161616', border: `0.5px solid ${goldBorder}`, borderRadius: '18px', padding: '22px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
                 <h3 style={{ fontSize: '17px', fontWeight: 600, color: '#f5f0e8' }}>Tvoji podaci</h3>
@@ -1248,7 +815,7 @@ export default function SalonLanding() {
                   ) : null}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {clientSummary.notifications!.map((n) => (
+                  {(clientSummary.notifications ?? []).map((n) => (
                     <div
                       key={n.id}
                       style={{
@@ -1337,6 +904,11 @@ export default function SalonLanding() {
                     onClick={() => {
                       setActiveView('booking')
                       setShowForma(true)
+                      window.requestAnimationFrame(() => {
+                        window.requestAnimationFrame(() => {
+                          uslugeAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        })
+                      })
                     }}
                     style={{
                       marginTop: '16px',
@@ -1358,6 +930,8 @@ export default function SalonLanding() {
                 <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.55)' }}>Učitavanje…</p>
               )}
             </div>
+          </div>
+            )}
           </div>
         )}
 
@@ -1388,15 +962,20 @@ export default function SalonLanding() {
           </div>
         )}
 
-        {/* USLUGE */}
         {activeView === 'booking' && usluge.length > 0 && (
           <div style={{ marginTop: '48px' }}>
             <h2 style={{ fontSize: '22px', fontWeight: 500, color: '#f5f0e8', marginBottom: '8px' }}>Naše usluge</h2>
             <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.4)', marginBottom: '24px' }}>Odaberite uslugu za zakazivanje</p>
             <div className="usluge-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-              {usluge.map(u => (
-                <div key={u.id} className={`usluga-card${odabranaUsluga?.id === u.id ? ' usluga-active' : ''}`}
-                  onClick={() => { setOdabranaUsluga(odabranaUsluga?.id === u.id ? null : u); setShowForma(true) }}>
+              {usluge.map((u) => (
+                <div
+                  key={u.id}
+                  className={`usluga-card${odabranaUsluga?.id === u.id ? ' usluga-active' : ''}`}
+                  onClick={() => {
+                    setOdabranaUsluga(odabranaUsluga?.id === u.id ? null : u)
+                    setShowForma(true)
+                  }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                     <div style={{ fontSize: '15px', fontWeight: 500, color: '#f5f0e8' }}>{u.naziv}</div>
                     <div style={{ fontSize: '14px', fontWeight: 600, color: gold }}>{Number(u.cijena).toLocaleString()} RSD</div>
@@ -1409,7 +988,6 @@ export default function SalonLanding() {
           </div>
         )}
 
-        {/* FORMA */}
         {activeView === 'booking' && showForma && (
           <div style={{ marginTop: '32px', background: '#161616', border: `0.5px solid ${goldBorder}`, borderRadius: '20px', padding: '28px', animation: 'fadeUp .4s ease' }}>
             <h3 style={{ fontSize: '18px', fontWeight: 500, color: '#f5f0e8', marginBottom: '6px' }}>
@@ -1426,20 +1004,27 @@ export default function SalonLanding() {
                 { label: 'TELEFON *', key: 'telefon', placeholder: '+381 60 000 000', type: 'tel' },
                 { label: 'DATUM *', key: 'datum', placeholder: '', type: 'date' },
                 { label: 'VRIJEME *', key: 'vrijeme', placeholder: '', type: 'time' },
-              ].map(f => (
+              ].map((f) => (
                 <div key={f.key}>
                   <label style={{ fontSize: '11px', color: 'rgba(245,240,232,.4)', display: 'block', marginBottom: '5px', letterSpacing: '.3px' }}>{f.label}</label>
-                  <input type={f.type} style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }}
-                    placeholder={f.placeholder} value={(forma as any)[f.key]}
-                    onChange={e => setForma({ ...forma, [f.key]: e.target.value })}
-                    min={f.type === 'date' ? new Date().toISOString().split('T')[0] : undefined} />
+                  <input
+                    type={f.type}
+                    style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px' }}
+                    placeholder={f.placeholder}
+                    value={(forma as Record<string, string>)[f.key]}
+                    onChange={(e) => setForma({ ...forma, [f.key]: e.target.value })}
+                    min={f.type === 'date' ? new Date().toISOString().split('T')[0] : undefined}
+                  />
                 </div>
               ))}
               <div style={{ gridColumn: '1/-1' }}>
                 <label style={{ fontSize: '11px', color: 'rgba(245,240,232,.4)', display: 'block', marginBottom: '5px', letterSpacing: '.3px' }}>NAPOMENA</label>
-                <textarea style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px', resize: 'none', height: '80px' }}
-                  placeholder="Posebni zahtjevi..." value={forma.napomena}
-                  onChange={e => setForma({ ...forma, napomena: e.target.value })} />
+                <textarea
+                  style={{ width: '100%', background: '#1a1a1a', border: '0.5px solid rgba(212,175,55,.2)', borderRadius: '10px', padding: '12px 14px', fontSize: '14px', resize: 'none', height: '80px' }}
+                  placeholder="Posebni zahtjevi..."
+                  value={forma.napomena}
+                  onChange={(e) => setForma({ ...forma, napomena: e.target.value })}
+                />
               </div>
             </div>
 
@@ -1450,17 +1035,57 @@ export default function SalonLanding() {
             )}
 
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <button style={{ background: `linear-gradient(135deg,${gold},#b8960c)`, color: '#0a0a0a', border: 'none', padding: '14px 28px', borderRadius: '12px', fontWeight: 600, fontSize: '14px', cursor: 'pointer', fontFamily: 'sans-serif', opacity: loading ? .6 : 1 }}
-                disabled={loading} onClick={handleZakazivanje}>
-                {loading
-                  ? <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ width: '14px', height: '14px', border: '2px solid rgba(10,10,10,.3)', borderTop: '2px solid #0a0a0a', borderRadius: '50%', display: 'inline-block', animation: 'spin .8s linear infinite' }} />
+              <button
+                style={{
+                  background: `linear-gradient(135deg,${gold},#b8960c)`,
+                  color: '#0a0a0a',
+                  border: 'none',
+                  padding: '14px 28px',
+                  borderRadius: '12px',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  fontFamily: 'sans-serif',
+                  opacity: loading ? 0.6 : 1,
+                }}
+                disabled={loading}
+                onClick={handleZakazivanje}
+              >
+                {loading ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span
+                      style={{
+                        width: '14px',
+                        height: '14px',
+                        border: '2px solid rgba(10,10,10,.3)',
+                        borderTop: '2px solid #0a0a0a',
+                        borderRadius: '50%',
+                        display: 'inline-block',
+                        animation: 'spin .8s linear infinite',
+                      }}
+                    />
                     Zakazivanje...
                   </span>
-                  : 'Zakaži termin →'}
+                ) : (
+                  'Zakaži termin →'
+                )}
               </button>
-              <button style={{ background: 'transparent', color: 'rgba(245,240,232,.5)', border: '0.5px solid rgba(245,240,232,.15)', padding: '14px 20px', borderRadius: '12px', fontSize: '14px', cursor: 'pointer', fontFamily: 'sans-serif' }}
-                onClick={() => { setShowForma(false); setGreska('') }}>
+              <button
+                style={{
+                  background: 'transparent',
+                  color: 'rgba(245,240,232,.5)',
+                  border: '0.5px solid rgba(245,240,232,.15)',
+                  padding: '14px 20px',
+                  borderRadius: '12px',
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  fontFamily: 'sans-serif',
+                }}
+                onClick={() => {
+                  setShowForma(false)
+                  setGreska('')
+                }}
+              >
                 Odustani
               </button>
             </div>
@@ -1469,14 +1094,25 @@ export default function SalonLanding() {
 
         {activeView === 'booking' && !showForma && !uspjeh && (
           <div style={{ marginTop: '32px', textAlign: 'center' }}>
-            <button style={{ background: `linear-gradient(135deg,${gold},#b8960c)`, color: '#0a0a0a', border: 'none', padding: '16px 36px', borderRadius: '28px', fontWeight: 600, fontSize: '16px', cursor: 'pointer', fontFamily: 'sans-serif' }}
-              onClick={() => setShowForma(true)}>
+            <button
+              style={{
+                background: `linear-gradient(135deg,${gold},#b8960c)`,
+                color: '#0a0a0a',
+                border: 'none',
+                padding: '16px 36px',
+                borderRadius: '28px',
+                fontWeight: 600,
+                fontSize: '16px',
+                cursor: 'pointer',
+                fontFamily: 'sans-serif',
+              }}
+              onClick={() => setShowForma(true)}
+            >
               Zakaži termin →
             </button>
           </div>
         )}
 
-        {/* LOJALNOST */}
         {activeView === 'booking' && lojalnost?.aktivan && (
           <div style={{ marginTop: '48px', background: 'linear-gradient(135deg,#1a1500,#0f0e00)', border: '0.5px solid rgba(212,175,55,.35)', borderRadius: '20px', padding: '28px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
@@ -1489,14 +1125,16 @@ export default function SalonLanding() {
             <div style={{ background: goldFaint, borderRadius: '12px', padding: '16px' }}>
               <div style={{ fontSize: '16px', color: gold, fontWeight: 500 }}>
                 🏆 Svaki {lojalnost.svaki_koji}. dolazak →{' '}
-                {lojalnost.tip === 'popust' ? `${lojalnost.vrijednost}% popusta` :
-                  lojalnost.tip === 'vaučer' ? `vaučer ${lojalnost.vrijednost} RSD` : 'besplatna usluga'}
+                {lojalnost.tip === 'popust'
+                  ? `${lojalnost.vrijednost}% popusta`
+                  : lojalnost.tip === 'vaučer'
+                    ? `vaučer ${lojalnost.vrijednost} RSD`
+                    : 'besplatna usluga'}
               </div>
             </div>
           </div>
         )}
 
-        {/* GOOGLE MAPA */}
         {activeView === 'booking' && mapsUrl && locationQuery && (
           <div style={{ marginTop: '48px' }}>
             <h2 style={{ fontSize: '22px', fontWeight: 500, color: '#f5f0e8', marginBottom: '8px' }}>Gdje se nalazimo</h2>
@@ -1515,16 +1153,610 @@ export default function SalonLanding() {
                 src={mapsUrl}
               />
             </div>
-            <a
-              href={openInMapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ display: 'inline-block', marginTop: '12px', fontSize: '13px', color: gold }}
-            >
+            <a href={openInMapsUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: '12px', fontSize: '13px', color: gold }}>
               Otvori u Google Maps →
             </a>
           </div>
         )}
+      </>
+  )
+
+  return (
+    <main style={{ background: '#0a0a0a', minHeight: '100vh', color: '#f5f0e8', fontFamily: 'sans-serif' }}>
+      <style>{`
+        @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes salonToastIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        *{box-sizing:border-box;margin:0;padding:0}
+        input,textarea{outline:none;font-family:sans-serif;color:#f5f0e8}
+        input:focus,textarea:focus{border-color:rgba(212,175,55,.6)!important}
+        .usluga-card{cursor:pointer;background:#161616;border:0.5px solid rgba(212,175,55,.15);border-radius:16px;padding:20px;transition:all .3s}
+        .usluga-card:hover{border-color:rgba(212,175,55,.4);transform:translateY(-2px)}
+        .usluga-active{border-color:#d4af37!important;background:rgba(212,175,55,.08)!important}
+        .salon-sticky-nav{
+          position:sticky;top:0;z-index:50;
+          background:rgba(8,8,8,.88);
+          backdrop-filter:saturate(140%) blur(14px);
+          -webkit-backdrop-filter:saturate(140%) blur(14px);
+          border-bottom:0.5px solid rgba(212,175,55,.22);
+          box-shadow:0 12px 40px rgba(0,0,0,.35);
+        }
+        .salon-nav-inner{
+          max-width:900px;margin:0 auto;
+          padding:12px 48px;
+          display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+        }
+        .salon-nav-brand{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+        .salon-nav-brand-mark{
+          width:36px;height:36px;border-radius:12px;flex-shrink:0;
+          display:flex;align-items:center;justify-content:center;
+          font-size:15px;font-weight:700;color:#0a0a0a;
+          border:0.5px solid rgba(212,175,55,.35);
+        }
+        .salon-nav-brand-text{font-size:14px;font-weight:600;color:#f5f0e8;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .salon-nav-pills{display:none;align-items:center;gap:8px;flex-wrap:wrap}
+        .salon-nav-burger-only{display:inline-flex;align-items:center;justify-content:center}
+        .salon-nav-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+        @media(min-width:769px){
+          .salon-nav-pills{display:flex}
+          .salon-nav-burger-only{display:none!important}
+          .salon-mobile-sheet{display:none!important}
+        }
+        @media(max-width:768px){
+          .salon-nav-inner{padding:10px 20px}
+          .salon-mobile-sheet{padding:0 20px 12px!important}
+          .hero-section{padding:36px 20px 44px!important}
+          .hero-title{font-size:28px!important}
+          .content-pad{padding:0 20px 40px!important}
+          .usluge-grid{grid-template-columns:1fr!important}
+          .forma-grid{grid-template-columns:1fr!important}
+        }
+      `}</style>
+
+      {/* Sticky navigacija — iznad hero-a; na mobilnom samo burger */}
+      <header className="salon-sticky-nav">
+        <div className="salon-nav-inner">
+          <div className="salon-nav-brand">
+            {salon.logo_url ? (
+              <img
+                src={salon.logo_url}
+                alt=""
+                width={36}
+                height={36}
+                style={{ borderRadius: 12, objectFit: 'cover', border: '0.5px solid rgba(212,175,55,.35)' }}
+              />
+            ) : (
+              <div
+                className="salon-nav-brand-mark"
+                style={{ background: `linear-gradient(135deg,${gold},#b8960c)` }}
+              >
+                {salon.naziv.charAt(0)}
+              </div>
+            )}
+            <span className="salon-nav-brand-text">{salon.naziv}</span>
+          </div>
+
+          <div className="salon-nav-pills">
+            <button
+              type="button"
+              onClick={scrollToUsluge}
+              style={{
+                background: activeView === 'booking' ? 'rgba(212,175,55,.12)' : 'transparent',
+                color: activeView === 'booking' ? gold : 'rgba(245,240,232,.65)',
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '8px 14px',
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'background .2s,color .2s',
+              }}
+            >
+              Zakazivanje
+            </button>
+            <button
+              type="button"
+              onClick={scrollToPodaci}
+              style={{
+                position: 'relative',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: activeView === 'profile' ? 'rgba(212,175,55,.12)' : 'transparent',
+                color: activeView === 'profile' ? gold : 'rgba(245,240,232,.65)',
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '8px 14px',
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'background .2s,color .2s',
+              }}
+            >
+              Tvoj profil
+              {neprocitaneObavestenja > 0 ? (
+                <span
+                  style={{
+                    minWidth: 18,
+                    height: 18,
+                    padding: '0 5px',
+                    borderRadius: 9,
+                    background: '#c45c5c',
+                    color: '#fff',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {neprocitaneObavestenja > 9 ? '9+' : neprocitaneObavestenja}
+                </span>
+              ) : null}
+            </button>
+          </div>
+
+          <div className="salon-nav-actions">
+            <div ref={kupacMenuRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={kupacMenuOpen}
+                aria-label="Kupac — nalog, prijava ili registracija"
+                onClick={() => setKupacMenuOpen((o) => !o)}
+                style={{
+                  background: kupacMenuOpen
+                    ? `linear-gradient(160deg, rgba(212,175,55,.22), rgba(212,175,55,.06))`
+                    : `linear-gradient(160deg, rgba(212,175,55,.14), rgba(212,175,55,.04))`,
+                  border: `1px solid ${gold}`,
+                  borderRadius: 10,
+                  padding: '8px 10px',
+                  lineHeight: 0,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: kupacMenuOpen ? `0 0 0 1px rgba(212,175,55,.25)` : 'none',
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path
+                    d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"
+                    stroke={gold}
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx="12" cy="7" r="4" stroke={gold} strokeWidth="1.75" />
+                </svg>
+              </button>
+              {kupacMenuOpen && (
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute',
+                    right: 0,
+                    top: 'calc(100% + 8px)',
+                    width: 'min(300px, calc(100vw - 32px))',
+                    maxHeight: 420,
+                    overflowY: 'auto',
+                    background: '#121212',
+                    border: `0.5px solid ${goldBorder}`,
+                    borderRadius: 14,
+                    boxShadow: '0 20px 50px rgba(0,0,0,.55)',
+                    zIndex: 65,
+                    padding: '14px 14px 12px',
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: 'rgba(245,240,232,.45)', marginBottom: 10, letterSpacing: '0.04em' }}>KUPAC</div>
+                  {!klijentUlogovan ? (
+                    <>
+                      {!guestAuthCollapsed ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          <Link
+                            href={`/kupac/registracija?next=${kupacReturnEnc}`}
+                            onClick={() => setKupacMenuOpen(false)}
+                            style={{
+                              textAlign: 'center',
+                              background: `linear-gradient(135deg,${gold},#b8960c)`,
+                              color: '#0a0a0a',
+                              padding: '11px 14px',
+                              borderRadius: 10,
+                              fontWeight: 600,
+                              fontSize: 13,
+                              textDecoration: 'none',
+                            }}
+                          >
+                            Registracija kupca
+                          </Link>
+                          <Link
+                            href={`/kupac/prijava?next=${kupacReturnEnc}`}
+                            onClick={() => setKupacMenuOpen(false)}
+                            style={{
+                              textAlign: 'center',
+                              background: 'transparent',
+                              color: gold,
+                              border: `0.5px solid ${goldBorder}`,
+                              padding: '11px 14px',
+                              borderRadius: 10,
+                              fontWeight: 600,
+                              fontSize: 13,
+                              textDecoration: 'none',
+                            }}
+                          >
+                            Prijava kupca
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGuestAuthCollapsed(true)
+                              setActiveView('booking')
+                              setKupacMenuOpen(false)
+                            }}
+                            style={{
+                              background: 'transparent',
+                              color: 'rgba(245,240,232,.75)',
+                              border: '0.5px solid rgba(245,240,232,.18)',
+                              padding: '10px 12px',
+                              borderRadius: 10,
+                              fontSize: 12,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Nastavi kao gost
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 12, color: 'rgba(245,240,232,.7)', lineHeight: 1.55 }}>
+                          <p style={{ marginBottom: 10 }}>Zakazujete kao gost — nije potreban nalog.</p>
+                          <button
+                            type="button"
+                            onClick={() => setGuestAuthCollapsed(false)}
+                            style={{
+                              background: 'transparent',
+                              color: gold,
+                              border: `0.5px solid ${goldBorder}`,
+                              borderRadius: 10,
+                              padding: '8px 12px',
+                              fontSize: 12,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Nazad na nalog kupca
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <p style={{ fontSize: 12, color: 'rgba(245,240,232,.65)', lineHeight: 1.5 }}>Prijavljeni ste kao kupac ovog salona.</p>
+                      <button
+                        type="button"
+                        onClick={() => void handleClientLogout()}
+                        style={{
+                          background: 'transparent',
+                          color: 'rgba(245,240,232,.75)',
+                          border: '0.5px solid rgba(245,240,232,.2)',
+                          padding: '10px 12px',
+                          borderRadius: 10,
+                          fontSize: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Odjavi se
+                      </button>
+                    </div>
+                  )}
+                  {clientAuthSuccess ? (
+                    <div style={{ marginTop: 12, background: 'rgba(50,200,100,.1)', border: '0.5px solid rgba(50,200,100,.3)', borderRadius: 10, padding: '8px 10px', fontSize: 11, color: '#4caf81' }}>
+                      ✓ {clientAuthSuccess}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+            {klijentUlogovan && (
+              <div ref={notifBellRef} style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-expanded={notifPanelOpen}
+                  aria-label="Obaveštenja u aplikaciji"
+                  onClick={() => setNotifPanelOpen((o) => !o)}
+                  style={{
+                    position: 'relative',
+                    background: notifPanelOpen ? 'rgba(212,175,55,.12)' : '#141414',
+                    color: '#f5f0e8',
+                    border: `0.5px solid ${goldBorder}`,
+                    borderRadius: 10,
+                    padding: '8px 11px',
+                    fontSize: 15,
+                    lineHeight: 1,
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔔
+                  {neprocitaneObavestenja > 0 ? (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: -4,
+                        right: -4,
+                        minWidth: 16,
+                        height: 16,
+                        padding: '0 4px',
+                        borderRadius: 8,
+                        background: '#c45c5c',
+                        color: '#fff',
+                        fontSize: 9,
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: '2px solid #0a0a0a',
+                      }}
+                    >
+                      {neprocitaneObavestenja > 9 ? '9+' : neprocitaneObavestenja}
+                    </span>
+                  ) : null}
+                </button>
+                {notifPanelOpen && (
+                  <div
+                    role="dialog"
+                    aria-label="Obaveštenja"
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: 'calc(100% + 8px)',
+                      width: 'min(340px, calc(100vw - 32px))',
+                      maxHeight: 360,
+                      overflowY: 'auto',
+                      background: '#121212',
+                      border: `0.5px solid ${goldBorder}`,
+                      borderRadius: 14,
+                      boxShadow: '0 20px 50px rgba(0,0,0,.55)',
+                      zIndex: 60,
+                      padding: '12px 0',
+                    }}
+                  >
+                    <div style={{ padding: '0 14px 10px', borderBottom: `0.5px solid ${goldBorder}` }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#f5f0e8' }}>Obaveštenja</div>
+                      <div style={{ fontSize: 11, color: 'rgba(245,240,232,.45)', marginTop: 4 }}>
+                        Sve unutar aplikacije — osvežava se automatski.
+                      </div>
+                    </div>
+                    {(clientSummary?.notifications?.length ?? 0) === 0 ? (
+                      <p style={{ padding: '14px 16px', fontSize: 12, color: 'rgba(245,240,232,.45)' }}>
+                        Još nema obaveštenja o terminima.
+                      </p>
+                    ) : (
+                      <ul style={{ listStyle: 'none', margin: 0, padding: '8px 0' }}>
+                        {(clientSummary?.notifications ?? [])
+                          .slice()
+                          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+                          .slice(0, 6)
+                          .map((n) => (
+                            <li
+                              key={n.id}
+                              style={{
+                                padding: '10px 14px',
+                                borderBottom: '0.5px solid rgba(245,240,232,.06)',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: n.read_at ? 'rgba(245,240,232,.55)' : '#f5f0e8' }}>
+                                    {n.title}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: 'rgba(245,240,232,.42)', marginTop: 4, lineHeight: 1.45 }}>
+                                    {skratiTekst(n.body, 120)}
+                                  </div>
+                                </div>
+                                {!n.read_at ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void oznaciObavestenjeProcitano(n.id)}
+                                    style={{
+                                      flexShrink: 0,
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      color: gold,
+                                      background: 'transparent',
+                                      border: `0.5px solid ${goldBorder}`,
+                                      borderRadius: 8,
+                                      padding: '4px 8px',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    OK
+                                  </button>
+                                ) : null}
+                              </div>
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                    <div style={{ padding: '8px 14px 4px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotifPanelOpen(false)
+                          scrollToPodaci()
+                        }}
+                        style={{
+                          width: '100%',
+                          textAlign: 'center',
+                          background: 'rgba(212,175,55,.1)',
+                          color: gold,
+                          border: `0.5px solid ${goldBorder}`,
+                          borderRadius: 10,
+                          padding: '10px 12px',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Sva obaveštenja i profil →
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {klijentUlogovan && (
+              <button
+                type="button"
+                onClick={() => void ucitajClientSummary()}
+                style={{
+                  background: 'transparent',
+                  color: 'rgba(245,240,232,.75)',
+                  border: '0.5px solid rgba(245,240,232,.18)',
+                  borderRadius: 10,
+                  padding: '8px 12px',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                {summaryLoading ? '…' : 'Osveži'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="salon-nav-burger-only"
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              aria-expanded={mobileMenuOpen}
+              aria-label="Meni"
+              style={{
+                background: '#141414',
+                color: '#f5f0e8',
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '10px 12px',
+                fontSize: 16,
+                lineHeight: 1,
+                cursor: 'pointer',
+              }}
+            >
+              ☰
+            </button>
+          </div>
+        </div>
+
+        {mobileMenuOpen && (
+          <div
+            style={{
+              maxWidth: 900,
+              margin: '0 auto',
+              padding: '0 48px 12px',
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+              borderTop: '0.5px solid rgba(212,175,55,.12)',
+              paddingTop: 12,
+            }}
+            className="salon-mobile-sheet"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                scrollToUsluge()
+              }}
+              style={{
+                background: 'transparent',
+                color: 'rgba(245,240,232,.85)',
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '10px 14px',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Zakazivanje
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                scrollToPodaci()
+              }}
+              style={{
+                position: 'relative',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'transparent',
+                color: 'rgba(245,240,232,.85)',
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '10px 14px',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Tvoj profil
+              {neprocitaneObavestenja > 0 ? (
+                <span
+                  style={{
+                    minWidth: 18,
+                    height: 18,
+                    padding: '0 5px',
+                    borderRadius: 9,
+                    background: '#c45c5c',
+                    color: '#fff',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {neprocitaneObavestenja > 9 ? '9+' : neprocitaneObavestenja}
+                </span>
+              ) : null}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowForma(true)
+                scrollToUsluge()
+              }}
+              style={{
+                background: 'rgba(212,175,55,.1)',
+                color: gold,
+                border: `0.5px solid ${goldBorder}`,
+                borderRadius: 10,
+                padding: '10px 14px',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Novi termin
+            </button>
+          </div>
+        )}
+      </header>
+
+      {/* Hero — podaci o salonu */}
+      <div className="hero-section" style={{ background: 'linear-gradient(180deg,#0f0d08 0%,#111 32%,#1a1500 100%)', borderBottom: '0.5px solid rgba(212,175,55,.18)', padding: '52px 48px 56px', textAlign: 'center', animation: 'fadeUp .6s ease' }}>
+        {salon.logo_url
+          ? <img src={salon.logo_url} alt={salon.naziv} style={{ width: '80px', height: '80px', borderRadius: '20px', objectFit: 'cover', margin: '0 auto 20px', display: 'block', border: '0.5px solid rgba(212,175,55,.3)' }} />
+          : <div style={{ width: '80px', height: '80px', borderRadius: '20px', background: `linear-gradient(135deg,${gold},#b8960c)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 600, color: '#0a0a0a', margin: '0 auto 20px' }}>
+              {salon.naziv.charAt(0)}
+            </div>
+        }
+        {salon.tip && <div style={{ fontSize: '11px', color: gold, letterSpacing: '2px', marginBottom: '14px', fontWeight: 600 }}>{salon.tip.toUpperCase()}</div>}
+        <h1 className="hero-title" style={{ fontSize: '42px', fontWeight: 600, color: '#f5f0e8', marginBottom: '12px', letterSpacing: '-0.02em', lineHeight: 1.15 }}>{salon.naziv}</h1>
+        <div style={{ width: 56, height: 3, borderRadius: 2, margin: '0 auto 20px', background: `linear-gradient(90deg,transparent,${gold},transparent)` }} aria-hidden />
+        {salon.opis && <p style={{ fontSize: '16px', color: 'rgba(245,240,232,.58)', lineHeight: 1.75, maxWidth: '560px', margin: '0 auto 28px' }}>{salon.opis}</p>}
+        <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap', fontSize: '13px', color: 'rgba(245,240,232,.45)' }}>
+          {salon.grad && <span>📍 {salon.adresa ? `${salon.adresa}, ` : ''}{salon.grad}</span>}
+          {salon.telefon && <span>📞 {salon.telefon}</span>}
+          {salon.radno_od && salon.radno_do && <span>🕐 {salon.radno_od} — {salon.radno_do}</span>}
+        </div>
+      </div>
+
+      <div className="content-pad" style={{ maxWidth: '900px', margin: '0 auto', padding: '0 48px 60px' }}>
+        {renderMainColumn()}
 
         <div style={{ marginTop: '48px', paddingTop: '24px', borderTop: '0.5px solid rgba(212,175,55,.1)', textAlign: 'center' }}>
           <p style={{ fontSize: '12px', color: 'rgba(245,240,232,.2)' }}>
@@ -1539,7 +1771,7 @@ export default function SalonLanding() {
           aria-live="polite"
           style={{
             position: 'fixed',
-            zIndex: 70,
+            zIndex: 100,
             left: 16,
             right: 16,
             bottom: `max(20px, env(safe-area-inset-bottom, 0px))`,
@@ -1575,7 +1807,7 @@ export default function SalonLanding() {
                   type="button"
                   onClick={() => {
                     setInAppToast(null)
-                    setActiveView('profile')
+                    scrollToPodaci()
                   }}
                   style={{
                     background: `linear-gradient(135deg,${gold},#b8960c)`,
