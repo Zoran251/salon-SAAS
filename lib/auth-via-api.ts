@@ -8,6 +8,11 @@ export type AuthPasswordAction = 'signin' | 'signup'
 export type AuthPasswordSignupOptions = {
   /** Samo za signup — sprema se u user_metadata (npr. salon_owner za /registracija). */
   app_role?: AppRole
+  /**
+   * Za signin: `customer` = server proverava crnu listu (je_auth_blokiran) i ne vraća sesiju ako je blokada.
+   * Za prijavu salona ne šalji ili koristi `salon`.
+   */
+  auth_context?: 'customer' | 'salon'
 }
 
 /**
@@ -24,6 +29,9 @@ export async function authPasswordViaApi(
     const body: Record<string, unknown> = { action, email, password }
     if (action === 'signup' && signupOptions?.app_role) {
       body.app_role = signupOptions.app_role
+    }
+    if (signupOptions?.auth_context) {
+      body.auth_context = signupOptions.auth_context
     }
     res = await fetch('/api/auth/password', {
       method: 'POST',

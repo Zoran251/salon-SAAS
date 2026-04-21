@@ -66,7 +66,7 @@ export async function GET(request: Request) {
 
     const { data: appointments, error: appointmentsError } = await userClient
       .from('termini')
-      .select('id, datum_vrijeme, status, ime_klijenta')
+      .select('id, datum_vrijeme, status, ime_klijenta, usluga_id, napomena, usluge(naziv)')
       .eq('salon_id', salonId)
       .eq('client_id', clientData.id)
       .order('datum_vrijeme', { ascending: false })
@@ -95,12 +95,18 @@ export async function GET(request: Request) {
     const stats = {
       ukupnoTermina: allAppointments.length,
       potvrdjeni: allAppointments.filter((a) => a.status === 'potvrđen').length,
-      cekaju: allAppointments.filter((a) => a.status !== 'potvrđen').length,
+      cekaju: allAppointments.filter((a) => a.status !== 'potvrđen' && a.status !== 'otkazan').length,
     }
+
+    const { data: bookingBlocked, error: blErr } = await userClient.rpc('je_auth_blokiran', {
+      p_uid: userData.user.id,
+    })
+    const booking_blocked = !blErr && bookingBlocked === true
 
     return NextResponse.json({
       client: clientData,
       stats,
+      booking_blocked,
       loyalty: loyaltyData || { visits_count: 0, progress_percent: 0, reward_ready: false },
       appointments: allAppointments.slice(0, 6),
       notifications: notifRows || [],

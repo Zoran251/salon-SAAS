@@ -76,7 +76,9 @@ function KupacRegistracijaForm() {
       return
     }
 
-    const signInAgain = await authPasswordViaApi('signin', email, forma.lozinka)
+    const signInAgain = await authPasswordViaApi('signin', email, forma.lozinka, {
+      auth_context: 'customer',
+    })
     if (signInAgain.error) {
       setGreska(
         formatAuthError(signInAgain.error) +

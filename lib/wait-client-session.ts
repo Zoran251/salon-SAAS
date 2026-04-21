@@ -1,8 +1,18 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
-/** Nakon setSession() prvi getSession() često bude null — kratko ponavljanje. */
-export async function waitForClientSession(maxAttempts = 40, delayMs = 80): Promise<Session | null> {
+/** Podrazumevano ~6.4s: posle osvežavanja stranice localStorage + Supabase često kasne na sporijim uređajima. */
+export const AUTH_SESSION_WAIT_ATTEMPTS = 80
+export const AUTH_SESSION_WAIT_MS = 80
+
+/**
+ * Čeka dok getSession() ne vrati sesiju iz storage-a (npr. posle prijave ili F5).
+ * Ne meša se sa odjavom — samo čita stanje u pregledniku.
+ */
+export async function waitForClientSession(
+  maxAttempts = AUTH_SESSION_WAIT_ATTEMPTS,
+  delayMs = AUTH_SESSION_WAIT_MS
+): Promise<Session | null> {
   for (let i = 0; i < maxAttempts; i++) {
     const { data } = await supabase.auth.getSession()
     if (data.session) return data.session

@@ -1,24 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { getPublicSupabaseEnv } from '@/lib/env-supabase'
-
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-function getServerSupabaseClient() {
-  const { url: supabaseUrl, anonKey: supabaseAnonKey, ok } = getPublicSupabaseEnv()
-  if (!ok) return null
-
-  // Preferred for public booking: bypasses RLS in a controlled server route.
-  const key = supabaseServiceRoleKey || supabaseAnonKey
-  if (!key) return null
-
-  return createClient(supabaseUrl, key, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  })
-}
+import { getServerSupabaseClient } from '@/lib/server-supabase'
 
 export async function POST(request: Request) {
   try {
@@ -41,55 +22,81 @@ export async function POST(request: Request) {
     const telefonKlijenta = String(telefon_klijenta).trim()
     const clientEmail = typeof email === 'string' && email.trim() ? email.trim() : null
 
-    const { data: existingClient, error: existingClientError } = await supabase
-      .from('salon_clients')
-      .select('id')
-      .eq('salon_id', salon_id)
-      .eq('telefon', telefonKlijenta)
-      .maybeSingle()
-
-    if (existingClientError) {
-      return NextResponse.json({ error: existingClientError.message }, { status: 500 })
-    }
-
-    let clientId = existingClient?.id as string | undefined
-
-    if (!clientId) {
-      const { data: newClient, error: newClientError } = await supabase
-        .from('salon_clients')
-        .insert({
-          salon_id,
-          ime: imeKlijenta,
-          telefon: telefonKlijenta,
-          email: clientEmail,
-        })
-        .select('id')
-        .single()
-
-      if (newClientError || !newClient) {
-        return NextResponse.json({ error: newClientError?.message || 'Neuspješno kreiranje klijenta.' }, { status: 500 })
+    const authHeader = request.headers.get('authorization')
+    let authUserId: string | null = null
+    if (authHeader?.toLowerCase().startsWith('bearer ')) {
+      const jwt = authHeader.slice(7).trim()
+      if (jwt) {
+        const { data: userRes } = await supabase.auth.getUser(jwt)
+        authUserId = userRes.user?.id ?? null
       }
-
-      clientId = newClient.id
-    } else if (clientEmail) {
-      // Keep customer email in sync when we receive it from booking form.
-      await supabase
-        .from('salon_clients')
-        .update({ ime: imeKlijenta, email: clientEmail })
-        .eq('id', clientId)
     }
 
-    const { error } = await supabase.from('termini').insert({
-      salon_id,
-      client_id: clientId,
-      usluga_id,
-      ime_klijenta: imeKlijenta,
-      telefon_klijenta: telefonKlijenta,
-      datum_vrijeme, napomena, status: 'ceka'
+    const { data: blockedPhone, error: rpcPhoneErr } = await supabase.rpc('je_telefon_blokiran', {
+      p_telefon: telefonKlijenta,
+    })
+    if (!rpcPhoneErr && blockedPhone === true) {
+      return NextResponse.json(
+        { error: 'Zakazivanje nije moguće: ovaj broj telefona je na crnoj listi.' },
+        { status: 403 }
+      )
+    }
+
+    if (authUserId) {
+      const { data: blockedAuth, error: rpcAuthErr } = await supabase.rpc('je_auth_blokiran', {
+        p_uid: authUserId,
+      })
+      if (!rpcAuthErr && blockedAuth === true) {
+        return NextResponse.json(
+          { error: 'Zakazivanje nije moguće: vaš nalog je na crnoj listi.' },
+          { status: 403 }
+        )
+      }
+    }
+
+    // Direktan INSERT u salon_clients sa anon ključem krši RLS (samo vlasnik salona sme).
+    // RPC ensure_salon_client_for_booking (security definer) — migracija 2026-04-24.
+    const { data: clientIdRaw, error: clientRpcError } = await supabase.rpc('ensure_salon_client_for_booking', {
+      p_salon_id: salon_id,
+      p_ime: imeKlijenta,
+      p_telefon: telefonKlijenta,
+      p_email: clientEmail,
     })
 
+    if (clientRpcError) {
+      const missingFn = /function .* does not exist|Could not find the function/i.test(clientRpcError.message)
+      return NextResponse.json(
+        {
+          error: missingFn
+            ? 'Baza nije ažurirana: pokreni migraciju 2026-04-24_ensure_salon_client_booking_rpc.sql u Supabase SQL Editor-u, ili postavi SUPABASE_SERVICE_ROLE_KEY na serveru.'
+            : clientRpcError.message,
+        },
+        { status: 500 }
+      )
+    }
+
+    const clientId = typeof clientIdRaw === 'string' ? clientIdRaw : null
+    if (!clientId) {
+      return NextResponse.json({ error: 'Neuspješno povezivanje klijenta sa salonom.' }, { status: 500 })
+    }
+
+    const { data: inserted, error } = await supabase
+      .from('termini')
+      .insert({
+        salon_id,
+        client_id: clientId,
+        usluga_id,
+        ime_klijenta: imeKlijenta,
+        telefon_klijenta: telefonKlijenta,
+        datum_vrijeme,
+        napomena,
+        status: 'ceka',
+      })
+      .select('id')
+      .single()
+
     if (error) {
-      const rlsHint = !supabaseServiceRoleKey && /row-level security/i.test(error.message)
+      const rlsHint = !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() && /row-level security/i.test(error.message)
       return NextResponse.json(
         {
           error: rlsHint
@@ -99,7 +106,7 @@ export async function POST(request: Request) {
         { status: 500 }
       )
     }
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, termin_id: inserted?.id ?? null })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Greška servera'
     return NextResponse.json({ error: message }, { status: 500 })
@@ -122,18 +129,34 @@ export async function GET(request: Request) {
   if (!salon_id) return NextResponse.json({ error: 'Nedostaje salon_id' }, { status: 400 })
 
   if (statusCheck === '1') {
+    const termin_id = searchParams.get('termin_id')
     const ime = searchParams.get('ime')
     const telefon = searchParams.get('telefon')
+    const datum_vrijeme = searchParams.get('datum_vrijeme')
 
-    if (!ime || !telefon) {
+    if (termin_id) {
+      const { data, error } = await supabase
+        .from('termini')
+        .select('status')
+        .eq('salon_id', salon_id)
+        .eq('id', termin_id)
+        .maybeSingle()
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ status: data?.status || null })
+    }
+
+    if (!ime || !telefon || !datum_vrijeme) {
       return NextResponse.json({ error: 'Nedostaju podaci za provjeru statusa termina' }, { status: 400 })
     }
 
-    const { data, error } = await supabase.from('termini')
+    const { data, error } = await supabase
+      .from('termini')
       .select('status')
       .eq('salon_id', salon_id)
       .eq('ime_klijenta', ime)
       .eq('telefon_klijenta', telefon)
+      .eq('datum_vrijeme', datum_vrijeme)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -142,7 +165,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: data?.status || null })
   }
 
-  const { data, error } = await supabase.from('termini')
+  const { data, error } = await supabase
+    .from('termini')
     .select('*, usluge(naziv, cijena)')
     .eq('salon_id', salon_id)
     .order('datum_vrijeme', { ascending: true })

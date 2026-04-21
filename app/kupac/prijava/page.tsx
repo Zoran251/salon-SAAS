@@ -37,7 +37,9 @@ function KupacPrijavaForm() {
     }
     setLoading(true)
     setGreska('')
-    const r = await authPasswordViaApi('signin', forma.email.trim(), forma.lozinka)
+    const r = await authPasswordViaApi('signin', forma.email.trim(), forma.lozinka, {
+      auth_context: 'customer',
+    })
     if (r.error) {
       setGreska(formatAuthError(r.error))
       setLoading(false)

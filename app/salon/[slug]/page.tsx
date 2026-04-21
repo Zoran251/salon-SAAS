@@ -1,8 +1,9 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { waitForClientSession } from '@/lib/wait-client-session'
 import { getAppRole } from '@/lib/user-role'
 
 interface Usluga {
@@ -11,6 +12,7 @@ interface Usluga {
   cijena: number
   trajanje: number
   opis?: string
+  kategorija?: string | null
 }
 
 interface Salon {
@@ -42,6 +44,7 @@ interface BookingNotification {
   telefon: string
   datum_vrijeme: string
   status: string
+  termin_id?: string
 }
 
 type PageView = 'booking' | 'profile'
@@ -67,6 +70,7 @@ interface ClientSummary {
     potvrdjeni: number
     cekaju: number
   }
+  booking_blocked?: boolean
   loyalty: {
     visits_count: number
     progress_percent: number
@@ -76,9 +80,15 @@ interface ClientSummary {
     id: string
     datum_vrijeme: string
     status: string
+    ime_klijenta?: string
+    usluga_id?: string | null
+    napomena?: string | null
+    usluge?: { naziv?: string } | null
   }>
   notifications?: ClientNotification[]
 }
+
+type TerminPregled = ClientSummary['appointments'][number]
 
 declare global {
   interface Window {
@@ -137,6 +147,8 @@ export default function SalonLanding() {
   const [activeView, setActiveView] = useState<PageView>('booking')
   const [clientSummary, setClientSummary] = useState<ClientSummary | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
+  /** Poslednja greška GET /api/clients/me (npr. nalog nije povezan sa salonom). */
+  const [clientMeError, setClientMeError] = useState('')
   const [forma, setForma] = useState({ ime: '', telefon: '', datum: '', vrijeme: '', napomena: '' })
   const [profilUredi, setProfilUredi] = useState(false)
   const [profilEdit, setProfilEdit] = useState({ ime: '', telefon: '', email: '' })
@@ -153,6 +165,56 @@ export default function SalonLanding() {
   const podaciAnchorRef = useRef<HTMLDivElement | null>(null)
   const kupacMenuRef = useRef<HTMLDivElement | null>(null)
   const [kupacMenuOpen, setKupacMenuOpen] = useState(false)
+  const [bookingPickerOpen, setBookingPickerOpen] = useState(false)
+  const [bookingPickerKategorija, setBookingPickerKategorija] = useState('Ostalo')
+  const [terminAkcijaPoruka, setTerminAkcijaPoruka] = useState('')
+  const [terminAkcijaGreska, setTerminAkcijaGreska] = useState('')
+  const [terminEdit, setTerminEdit] = useState<{
+    id: string
+    datum: string
+    vrijeme: string
+    usluga_id: string
+    napomena: string
+  } | null>(null)
+  const [terminEditLoading, setTerminEditLoading] = useState(false)
+  const [terminCancelLoading, setTerminCancelLoading] = useState<string | null>(null)
+
+  const uslugeKategorije = useMemo(() => {
+    const s = new Set(usluge.map((u) => (u.kategorija?.trim() ? u.kategorija.trim() : 'Ostalo')))
+    return [...s].sort((a, b) => a.localeCompare(b, 'sr'))
+  }, [usluge])
+
+  const uslugeUFokusu = useMemo(
+    () => usluge.filter((u) => (u.kategorija?.trim() ? u.kategorija.trim() : 'Ostalo') === bookingPickerKategorija),
+    [usluge, bookingPickerKategorija]
+  )
+
+  const otvoriZakazivanjePicker = useCallback(() => {
+    if (klijentUlogovan && clientSummary?.booking_blocked) {
+      setInAppToast({
+        title: 'Zakazivanje nije dostupno',
+        body: 'Vaš nalog je na crnoj listi.',
+      })
+      return
+    }
+    setActiveView('booking')
+    setMobileMenuOpen(false)
+    setKupacMenuOpen(false)
+    setNotifPanelOpen(false)
+    setTerminAkcijaPoruka('')
+    setTerminAkcijaGreska('')
+    if (usluge.length === 0) {
+      setShowForma(true)
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          uslugeAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      })
+      return
+    }
+    setBookingPickerKategorija(uslugeKategorije[0] ?? 'Ostalo')
+    setBookingPickerOpen(true)
+  }, [usluge.length, uslugeKategorije, klijentUlogovan, clientSummary?.booking_blocked])
 
   // Učitaj podatke pri učitavanju stranice
   useEffect(() => {
@@ -206,6 +268,8 @@ export default function SalonLanding() {
   useEffect(() => {
     if (!salon?.id) return
 
+    let cancelled = false
+
     const applyUser = (user: { id: string; user_metadata?: Record<string, unknown> } | null) => {
       if (!user) {
         setKlijentUlogovan(false)
@@ -228,34 +292,57 @@ export default function SalonLanding() {
       setKlijentUlogovan(user.id !== salon.id)
     }
 
-    void supabase.auth.getUser().then(({ data: { user } }) => applyUser(user))
+    // Posle F5 sesija iz localStorage često nije odmah dostupna — čekamo, bez lažne odjave.
+    const hydrateSession = async () => {
+      const session = await waitForClientSession()
+      if (cancelled) return
+      applyUser(session?.user ?? null)
+    }
+
+    void hydrateSession()
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      applyUser(session?.user ?? null)
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return
+      if (event === 'SIGNED_OUT') {
+        applyUser(null)
+        return
+      }
+      // Ne postavljati „nije ulogovan” na session === null osim pri SIGNED_OUT.
+      // Supabase ponekad prosledi prazan session u toku osvežavanja tokena — to je skidalo kupcu profil, termine i izmene.
+      if (session?.user) {
+        applyUser(session.user)
+      }
     })
-    return () => subscription.unsubscribe()
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
   }, [salon?.id])
 
   const ucitajClientSummary = useCallback(async () => {
     if (!salon?.id) return
     setSummaryLoading(true)
+    setClientMeError('')
     try {
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData.session?.access_token
       if (!token) {
         setClientSummary(null)
+        setClientMeError('')
         return
       }
 
       const params = new URLSearchParams({ auth_token: token, salon_id: salon.id })
       const res = await fetch(`/api/clients/me?${params.toString()}`)
-      const data = await res.json()
-      if (data.error) {
+      const data = (await res.json()) as { error?: string } & Partial<ClientSummary>
+      if (!res.ok || data.error) {
         setClientSummary(null)
+        setClientMeError(data.error || `Greška servera (${res.status}).`)
         return
       }
+      setClientMeError('')
       setClientSummary(data as ClientSummary)
     } finally {
       setSummaryLoading(false)
@@ -267,20 +354,51 @@ export default function SalonLanding() {
     void ucitajClientSummary()
   }, [klijentUlogovan, salon?.id, ucitajClientSummary])
 
+  // Ako je nalog naknadno stavljen na crnu listu, prekini sesiju (npr. stara kolačić-sesija).
+  useEffect(() => {
+    if (!klijentUlogovan || !clientSummary?.booking_blocked) return
+    let cancelled = false
+    void (async () => {
+      await supabase.auth.signOut()
+      if (cancelled) return
+      setClientSummary(null)
+      setInAppToast({
+        title: 'Pristup ograničen',
+        body: 'Vaš nalog je na crnoj listi. Sesija je zatvorena; prijava kao kupac nije moguća.',
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [klijentUlogovan, clientSummary?.booking_blocked])
+
+  // Automatsko ime/telefon iz profila kada je kupac ulogovan.
+  // Ne sme se osloniti samo na prvi render: clientSummary često stigne posle otvaranja forme.
   useEffect(() => {
     if (!showForma) {
       prevShowFormaRef.current = false
       return
     }
-    if (prevShowFormaRef.current) return
-    prevShowFormaRef.current = true
-    if (klijentUlogovan && clientSummary?.client) {
+    if (!klijentUlogovan || !clientSummary?.client) return
+
+    const { ime: cIme, telefon: cTel } = clientSummary.client
+
+    if (!prevShowFormaRef.current) {
+      prevShowFormaRef.current = true
       setForma((f) => ({
         ...f,
-        ime: clientSummary.client.ime,
-        telefon: clientSummary.client.telefon,
+        ime: cIme,
+        telefon: cTel,
       }))
+      return
     }
+
+    // Forma je već otvorena; profil se upravo učitao ili osvežio — popuni samo ako korisnik još nije uneo svoje vrednosti
+    setForma((f) => ({
+      ...f,
+      ime: f.ime.trim() ? f.ime : cIme,
+      telefon: f.telefon.trim() ? f.telefon : cTel,
+    }))
   }, [showForma, klijentUlogovan, clientSummary])
 
   /** In-app obaveštenja: osvežavanje na celoj stranici dok je kupac ulogovan. */
@@ -358,6 +476,10 @@ export default function SalonLanding() {
   }, [inAppToast])
 
   useEffect(() => {
+    setClientMeError('')
+  }, [slug])
+
+  useEffect(() => {
     if (!slug || typeof window === 'undefined') return
     const saved = window.localStorage.getItem(`booking:${slug}`)
     if (!saved) return
@@ -390,6 +512,7 @@ export default function SalonLanding() {
         telefon: bookingNotif.telefon,
         datum_vrijeme: bookingNotif.datum_vrijeme,
       })
+      if (bookingNotif.termin_id) params.set('termin_id', bookingNotif.termin_id)
       const res = await fetch(`/api/termini?${params.toString()}`)
       const data = await res.json()
       if (data.error) {
@@ -409,7 +532,7 @@ export default function SalonLanding() {
   }, [bookingNotif, sacuvajBookingNotif])
 
   useEffect(() => {
-    if (!bookingNotif || bookingNotif.status === 'potvrđen') return
+    if (!bookingNotif || bookingNotif.status === 'potvrđen' || bookingNotif.status === 'otkazan') return
 
     const intervalId = window.setInterval(() => {
       void provjeriStatusTermina()
@@ -447,11 +570,24 @@ export default function SalonLanding() {
   const locationQuery = salon ? buildLocationQuery(salon) : ''
   const mapsUrl = locationQuery ? buildMapsEmbedSrc(locationQuery) : ''
   const openInMapsUrl = locationQuery ? mapsSearchUrl(locationQuery) : ''
-  const statusLabel = bookingNotif?.status === 'potvrđen' ? 'Termin je potvrđen' : 'Termin čeka potvrdu'
+  const statusLabel =
+    bookingNotif?.status === 'potvrđen'
+      ? 'Termin je potvrđen'
+      : bookingNotif?.status === 'otkazan'
+        ? 'Termin je otkazan'
+        : 'Termin čeka potvrdu'
 
   const handleZakazivanje = async () => {
+    if (klijentUlogovan && clientSummary?.booking_blocked) {
+      setGreska('Zakazivanje nije dostupno: vaš nalog je na crnoj listi zbog kasnih otkazivanja.')
+      return
+    }
     if (!forma.ime || !forma.telefon || !forma.datum || !forma.vrijeme) {
       setGreska('Molimo popunite sva obavezna polja.')
+      return
+    }
+    if (usluge.length > 0 && !odabranaUsluga) {
+      setGreska('Izaberite kategoriju i uslugu pre slanja zahteva.')
       return
     }
     setLoading(true)
@@ -461,9 +597,16 @@ export default function SalonLanding() {
       const emailZaTermin =
         klijentUlogovan && clientSummary?.client?.email ? String(clientSummary.client.email).trim() : undefined
 
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (klijentUlogovan) {
+        const { data: sessionData } = await supabase.auth.getSession()
+        const token = sessionData.session?.access_token
+        if (token) headers.Authorization = `Bearer ${token}`
+      }
+
       const res = await fetch('/api/termini', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           salon_id: salon.id,
           usluga_id: odabranaUsluga?.id || null,
@@ -474,14 +617,19 @@ export default function SalonLanding() {
           ...(emailZaTermin ? { email: emailZaTermin } : {}),
         }),
       })
-      const data = await res.json()
-      if (data.error) { setGreska(data.error); setLoading(false); return }
+      const data = (await res.json()) as { error?: string; success?: boolean; termin_id?: string | null }
+      if (data.error) {
+        setGreska(data.error)
+        setLoading(false)
+        return
+      }
       const nextNotif: BookingNotification = {
         salon_id: salon.id,
         ime: forma.ime,
         telefon: forma.telefon,
         datum_vrijeme: datumVrijeme,
         status: 'ceka',
+        ...(typeof data.termin_id === 'string' && data.termin_id ? { termin_id: data.termin_id } : {}),
       }
       setBookingNotif(nextNotif)
       sacuvajBookingNotif(nextNotif)
@@ -564,6 +712,87 @@ export default function SalonLanding() {
     } catch {
       // Ignoriši — korisnik može ponovo osvežiti
     }
+  }
+
+  const otvoriTerminZaEdit = (termin: TerminPregled) => {
+    setTerminAkcijaPoruka('')
+    setTerminAkcijaGreska('')
+    const d = new Date(termin.datum_vrijeme)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    setTerminEdit({
+      id: termin.id,
+      datum: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+      vrijeme: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      usluga_id: termin.usluga_id || '',
+      napomena: termin.napomena || '',
+    })
+  }
+
+  const snimiTerminIzmenu = async () => {
+    if (!salon?.id || !terminEdit) return
+    setTerminEditLoading(true)
+    setTerminAkcijaGreska('')
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) throw new Error('Nema sesije.')
+      const params = new URLSearchParams({ auth_token: token, salon_id: salon.id })
+      const res = await fetch(`/api/clients/appointments/${terminEdit.id}?${params.toString()}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          datum_vrijeme: `${terminEdit.datum}T${terminEdit.vrijeme}:00`,
+          usluga_id: terminEdit.usluga_id || null,
+          napomena: terminEdit.napomena || null,
+        }),
+      })
+      const data = (await res.json()) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Snimanje nije uspjelo.')
+      setTerminEdit(null)
+      setTerminAkcijaPoruka('Termin je ažuriran.')
+      await ucitajClientSummary()
+    } catch (e) {
+      setTerminAkcijaGreska(e instanceof Error ? e.message : 'Greška.')
+    } finally {
+      setTerminEditLoading(false)
+    }
+  }
+
+  const otkaziTermin = async (terminId: string) => {
+    if (!salon?.id) return
+    if (!window.confirm('Da li zaista želite da otkažete ovaj termin?')) return
+    setTerminCancelLoading(terminId)
+    setTerminAkcijaGreska('')
+    setTerminAkcijaPoruka('')
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) throw new Error('Nema sesije.')
+      const params = new URLSearchParams({ auth_token: token, salon_id: salon.id })
+      const res = await fetch(`/api/clients/appointments/${terminId}?${params.toString()}`, {
+        method: 'DELETE',
+      })
+      const data = (await res.json()) as { error?: string; message?: string }
+      if (!res.ok) throw new Error(data.error || 'Otkazivanje nije uspjelo.')
+      setTerminEdit(null)
+      setTerminAkcijaPoruka(data.message || 'Termin je otkazan.')
+      await ucitajClientSummary()
+    } catch (e) {
+      setTerminAkcijaGreska(e instanceof Error ? e.message : 'Greška.')
+    } finally {
+      setTerminCancelLoading(null)
+    }
+  }
+
+  const izaberiUsluguIzPickera = (u: Usluga) => {
+    setOdabranaUsluga(u)
+    setBookingPickerOpen(false)
+    setShowForma(true)
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        uslugeAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    })
   }
 
   const scrollToUsluge = () => {
@@ -678,24 +907,44 @@ export default function SalonLanding() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
                 <h3 style={{ fontSize: '17px', fontWeight: 600, color: '#f5f0e8' }}>Tvoji podaci</h3>
                 {!profilUredi ? (
-                  <button
-                    type="button"
-                    onClick={otvoriUredjivanjeProfila}
-                    disabled={!clientSummary}
-                    style={{
-                      background: 'transparent',
-                      color: gold,
-                      border: `0.5px solid ${goldBorder}`,
-                      padding: '8px 14px',
-                      borderRadius: '10px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: clientSummary ? 'pointer' : 'not-allowed',
-                      opacity: clientSummary ? 1 : 0.5,
-                    }}
-                  >
-                    Izmeni podatke
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={otvoriUredjivanjeProfila}
+                      disabled={!clientSummary}
+                      style={{
+                        background: 'transparent',
+                        color: gold,
+                        border: `0.5px solid ${goldBorder}`,
+                        padding: '8px 14px',
+                        borderRadius: '10px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: clientSummary ? 'pointer' : 'not-allowed',
+                        opacity: clientSummary ? 1 : 0.5,
+                      }}
+                    >
+                      Izmeni podatke
+                    </button>
+                    {clientMeError && !summaryLoading ? (
+                      <button
+                        type="button"
+                        onClick={() => void ucitajClientSummary()}
+                        style={{
+                          background: 'rgba(212,175,55,.12)',
+                          color: gold,
+                          border: `0.5px solid ${goldBorder}`,
+                          padding: '8px 14px',
+                          borderRadius: '10px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Ponovo učitaj profil
+                      </button>
+                    ) : null}
+                  </div>
                 ) : (
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <button
@@ -789,6 +1038,31 @@ export default function SalonLanding() {
                     ))}
                   </div>
                 )
+              ) : clientMeError ? (
+                <div style={{ fontSize: '13px', color: 'rgba(245,240,232,.75)', lineHeight: 1.55 }}>
+                  <p style={{ marginBottom: '12px', color: '#ff8a8a' }}>{clientMeError}</p>
+                  {(clientMeError.includes('povezan') || clientMeError.includes('nije')) && (
+                    <p style={{ marginBottom: '12px', color: 'rgba(245,240,232,.55)' }}>
+                      Ako ste se tek prijavili, povežite broj telefona sa nalogom za ovaj salon (meni profila) ili zakazujte kao gost.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void ucitajClientSummary()}
+                    style={{
+                      background: `linear-gradient(135deg,${gold},#b8960c)`,
+                      color: '#0a0a0a',
+                      border: 'none',
+                      padding: '10px 16px',
+                      borderRadius: '10px',
+                      fontWeight: 600,
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Pokušaj ponovo
+                  </button>
+                </div>
               ) : (
                 <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.55)' }}>Učitavanje profila…</p>
               )}
@@ -862,6 +1136,53 @@ export default function SalonLanding() {
               <h3 style={{ fontSize: '17px', fontWeight: 600, marginBottom: '14px', color: '#f5f0e8' }}>Pregled</h3>
               {clientSummary ? (
                 <>
+                  {clientSummary.booking_blocked ? (
+                    <div
+                      style={{
+                        marginBottom: '14px',
+                        padding: '12px 14px',
+                        borderRadius: '12px',
+                        background: 'rgba(200,80,80,.12)',
+                        border: '0.5px solid rgba(220,100,100,.35)',
+                        fontSize: '13px',
+                        color: '#e8a0a0',
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      Zakazivanje je blokirano u svim salonima na ovoj platformi zbog višestrukih vrlo kasnih otkazivanja.
+                      Za pomoć kontaktirajte podršku.
+                    </div>
+                  ) : null}
+                  {terminAkcijaPoruka ? (
+                    <div
+                      style={{
+                        marginBottom: '12px',
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        background: 'rgba(50,200,100,.08)',
+                        border: '0.5px solid rgba(50,200,100,.25)',
+                        fontSize: '12px',
+                        color: '#9de0b4',
+                      }}
+                    >
+                      {terminAkcijaPoruka}
+                    </div>
+                  ) : null}
+                  {terminAkcijaGreska ? (
+                    <div
+                      style={{
+                        marginBottom: '12px',
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        background: 'rgba(220,50,50,.1)',
+                        border: '0.5px solid rgba(220,50,50,.3)',
+                        fontSize: '12px',
+                        color: '#ff6b6b',
+                      }}
+                    >
+                      {terminAkcijaGreska}
+                    </div>
+                  ) : null}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: '10px', marginBottom: '14px' }}>
                     <div style={{ background: '#1a1a1a', border: `0.5px solid ${goldBorder}`, borderRadius: '12px', padding: '12px' }}>
                       <div style={{ fontSize: '11px', color: 'rgba(245,240,232,.45)' }}>Ukupno termina</div>
@@ -880,30 +1201,214 @@ export default function SalonLanding() {
                     Posete: {clientSummary.loyalty.visits_count} · Nagrada: {clientSummary.loyalty.reward_ready ? 'spremna' : 'nije spremna'}
                   </div>
                   <div style={{ marginBottom: '10px', fontSize: '13px', fontWeight: 500, color: 'rgba(245,240,232,.85)' }}>Moji termini</div>
+                  {terminEdit ? (
+                    <div
+                      style={{
+                        marginBottom: '14px',
+                        padding: '14px',
+                        borderRadius: '12px',
+                        border: `0.5px solid ${goldBorder}`,
+                        background: '#121212',
+                      }}
+                    >
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#f5f0e8', marginBottom: '10px' }}>Izmena termina</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                        <div>
+                          <label style={{ fontSize: '10px', color: 'rgba(245,240,232,.45)', display: 'block', marginBottom: '4px' }}>DATUM</label>
+                          <input
+                            type="date"
+                            value={terminEdit.datum}
+                            min={new Date().toISOString().split('T')[0]}
+                            onChange={(e) => setTerminEdit({ ...terminEdit, datum: e.target.value })}
+                            style={{
+                              width: '100%',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              border: `0.5px solid ${goldBorder}`,
+                              background: '#1a1a1a',
+                              color: '#f5f0e8',
+                              fontSize: '13px',
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '10px', color: 'rgba(245,240,232,.45)', display: 'block', marginBottom: '4px' }}>VREME</label>
+                          <input
+                            type="time"
+                            value={terminEdit.vrijeme}
+                            onChange={(e) => setTerminEdit({ ...terminEdit, vrijeme: e.target.value })}
+                            style={{
+                              width: '100%',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              border: `0.5px solid ${goldBorder}`,
+                              background: '#1a1a1a',
+                              color: '#f5f0e8',
+                              fontSize: '13px',
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: '10px' }}>
+                        <label style={{ fontSize: '10px', color: 'rgba(245,240,232,.45)', display: 'block', marginBottom: '4px' }}>USLUGA</label>
+                        <select
+                          value={terminEdit.usluga_id}
+                          onChange={(e) => setTerminEdit({ ...terminEdit, usluga_id: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            border: `0.5px solid ${goldBorder}`,
+                            background: '#1a1a1a',
+                            color: '#f5f0e8',
+                            fontSize: '13px',
+                          }}
+                        >
+                          <option value="">—</option>
+                          {usluge.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.naziv}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={{ marginBottom: '12px' }}>
+                        <label style={{ fontSize: '10px', color: 'rgba(245,240,232,.45)', display: 'block', marginBottom: '4px' }}>NAPOMENA</label>
+                        <textarea
+                          value={terminEdit.napomena}
+                          onChange={(e) => setTerminEdit({ ...terminEdit, napomena: e.target.value })}
+                          rows={2}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            border: `0.5px solid ${goldBorder}`,
+                            background: '#1a1a1a',
+                            color: '#f5f0e8',
+                            fontSize: '13px',
+                            resize: 'none',
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          disabled={terminEditLoading}
+                          onClick={() => void snimiTerminIzmenu()}
+                          style={{
+                            background: `linear-gradient(135deg,${gold},#b8960c)`,
+                            color: '#0a0a0a',
+                            border: 'none',
+                            padding: '8px 14px',
+                            borderRadius: '8px',
+                            fontWeight: 600,
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            opacity: terminEditLoading ? 0.6 : 1,
+                          }}
+                        >
+                          {terminEditLoading ? 'Čuvanje…' : 'Sačuvaj'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTerminEdit(null)}
+                          style={{
+                            background: 'transparent',
+                            color: 'rgba(245,240,232,.65)',
+                            border: '0.5px solid rgba(245,240,232,.2)',
+                            padding: '8px 14px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Odustani
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   {clientSummary.appointments.length === 0 ? (
                     <p style={{ fontSize: '12px', color: 'rgba(245,240,232,.45)' }}>Još nema zakazanih termina.</p>
                   ) : (
-                    clientSummary.appointments.map((termin) => (
-                      <div
-                        key={termin.id}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '10px 0',
-                          borderBottom: '0.5px solid rgba(255,255,255,.06)',
-                        }}
-                      >
-                        <span style={{ fontSize: '12px', color: 'rgba(245,240,232,.8)' }}>{new Date(termin.datum_vrijeme).toLocaleString('sr')}</span>
-                        <span style={{ fontSize: '11px', color: termin.status === 'potvrđen' ? '#4caf81' : gold }}>{termin.status}</span>
-                      </div>
-                    ))
+                    clientSummary.appointments.map((termin) => {
+                      const uBuducnosti = new Date(termin.datum_vrijeme).getTime() > Date.now()
+                      const mozeUpravljati =
+                        uBuducnosti && termin.status !== 'otkazan' && !clientSummary.booking_blocked
+                      const statusBoja =
+                        termin.status === 'potvrđen'
+                          ? '#4caf81'
+                          : termin.status === 'otkazan'
+                            ? '#e07a7a'
+                            : gold
+                      return (
+                        <div
+                          key={termin.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            gap: '10px',
+                            padding: '10px 0',
+                            borderBottom: '0.5px solid rgba(255,255,255,.06)',
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <div style={{ flex: '1 1 160px' }}>
+                            <div style={{ fontSize: '12px', color: 'rgba(245,240,232,.85)' }}>
+                              {new Date(termin.datum_vrijeme).toLocaleString('sr')}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'rgba(245,240,232,.45)', marginTop: '2px' }}>
+                              {termin.usluge?.naziv || 'Usluga'}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                            <span style={{ fontSize: '11px', color: statusBoja }}>{termin.status}</span>
+                            {mozeUpravljati ? (
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => otvoriTerminZaEdit(termin)}
+                                  style={{
+                                    background: 'transparent',
+                                    color: gold,
+                                    border: `0.5px solid ${goldBorder}`,
+                                    padding: '4px 10px',
+                                    borderRadius: '8px',
+                                    fontSize: '11px',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Izmeni
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={terminCancelLoading === termin.id}
+                                  onClick={() => void otkaziTermin(termin.id)}
+                                  style={{
+                                    background: 'transparent',
+                                    color: '#e07a7a',
+                                    border: '0.5px solid rgba(220,100,100,.35)',
+                                    padding: '4px 10px',
+                                    borderRadius: '8px',
+                                    fontSize: '11px',
+                                    cursor: 'pointer',
+                                    opacity: terminCancelLoading === termin.id ? 0.5 : 1,
+                                  }}
+                                >
+                                  {terminCancelLoading === termin.id ? '…' : 'Otkaži'}
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    })
                   )}
                   <button
                     type="button"
+                    disabled={Boolean(clientSummary.booking_blocked)}
                     onClick={() => {
-                      setActiveView('booking')
-                      setShowForma(true)
+                      otvoriZakazivanjePicker()
                       window.requestAnimationFrame(() => {
                         window.requestAnimationFrame(() => {
                           uslugeAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -913,14 +1418,16 @@ export default function SalonLanding() {
                     style={{
                       marginTop: '16px',
                       width: '100%',
-                      background: `linear-gradient(135deg,${gold},#b8960c)`,
-                      color: '#0a0a0a',
+                      background: clientSummary.booking_blocked
+                        ? 'rgba(245,240,232,.12)'
+                        : `linear-gradient(135deg,${gold},#b8960c)`,
+                      color: clientSummary.booking_blocked ? 'rgba(245,240,232,.35)' : '#0a0a0a',
                       border: 'none',
                       padding: '12px 16px',
                       borderRadius: '12px',
                       fontWeight: 600,
                       fontSize: '14px',
-                      cursor: 'pointer',
+                      cursor: clientSummary.booking_blocked ? 'not-allowed' : 'pointer',
                     }}
                   >
                     Zakaži novi termin
@@ -936,21 +1443,69 @@ export default function SalonLanding() {
         )}
 
         {activeView === 'booking' && bookingNotif && (
-          <div style={{ marginTop: '24px', background: bookingNotif.status === 'potvrđen' ? 'rgba(50,200,100,.1)' : goldFaint, border: `0.5px solid ${bookingNotif.status === 'potvrđen' ? 'rgba(50,200,100,.35)' : goldBorder}`, borderRadius: '14px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <div
+            style={{
+              marginTop: '24px',
+              background:
+                bookingNotif.status === 'potvrđen'
+                  ? 'rgba(50,200,100,.1)'
+                  : bookingNotif.status === 'otkazan'
+                    ? 'rgba(200,80,80,.1)'
+                    : goldFaint,
+              border: `0.5px solid ${
+                bookingNotif.status === 'potvrđen'
+                  ? 'rgba(50,200,100,.35)'
+                  : bookingNotif.status === 'otkazan'
+                    ? 'rgba(220,100,100,.35)'
+                    : goldBorder
+              }`,
+              borderRadius: '14px',
+              padding: '14px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{ fontSize: '20px' }}>🔔</span>
               <div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: bookingNotif.status === 'potvrđen' ? '#4caf81' : gold }}>{statusLabel}</div>
+                <div
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    color:
+                      bookingNotif.status === 'potvrđen'
+                        ? '#4caf81'
+                        : bookingNotif.status === 'otkazan'
+                          ? '#e07a7a'
+                          : gold,
+                  }}
+                >
+                  {statusLabel}
+                </div>
                 <div style={{ fontSize: '12px', color: 'rgba(245,240,232,.45)' }}>Za broj {bookingNotif.telefon}</div>
               </div>
             </div>
-            <button
-              onClick={provjeriStatusTermina}
-              disabled={statusLoading}
-              style={{ background: 'transparent', color: 'rgba(245,240,232,.75)', border: '0.5px solid rgba(245,240,232,.2)', padding: '10px 14px', borderRadius: '10px', fontSize: '12px', cursor: 'pointer' }}
-            >
-              {statusLoading ? 'Provjera...' : 'Provjeri status'}
-            </button>
+            {bookingNotif.status !== 'otkazan' ? (
+              <button
+                type="button"
+                onClick={() => void provjeriStatusTermina()}
+                disabled={statusLoading}
+                style={{
+                  background: 'transparent',
+                  color: 'rgba(245,240,232,.75)',
+                  border: '0.5px solid rgba(245,240,232,.2)',
+                  padding: '10px 14px',
+                  borderRadius: '10px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                {statusLoading ? 'Provjera...' : 'Provjeri status'}
+              </button>
+            ) : null}
           </div>
         )}
 
@@ -963,9 +1518,11 @@ export default function SalonLanding() {
         )}
 
         {activeView === 'booking' && usluge.length > 0 && (
-          <div style={{ marginTop: '48px' }}>
+          <div ref={uslugeAnchorRef} style={{ marginTop: '48px' }}>
             <h2 style={{ fontSize: '22px', fontWeight: 500, color: '#f5f0e8', marginBottom: '8px' }}>Naše usluge</h2>
-            <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.4)', marginBottom: '24px' }}>Odaberite uslugu za zakazivanje</p>
+            <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.4)', marginBottom: '24px' }}>
+              Klik na karticu bira uslugu odmah. Dugme „Zakaži termin” otvara prozor za kategoriju pa uslugu.
+            </p>
             <div className="usluge-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
               {usluge.map((u) => (
                 <div
@@ -980,7 +1537,9 @@ export default function SalonLanding() {
                     <div style={{ fontSize: '15px', fontWeight: 500, color: '#f5f0e8' }}>{u.naziv}</div>
                     <div style={{ fontSize: '14px', fontWeight: 600, color: gold }}>{Number(u.cijena).toLocaleString()} RSD</div>
                   </div>
-                  <div style={{ fontSize: '12px', color: 'rgba(245,240,232,.4)' }}>{u.trajanje} min</div>
+                  <div style={{ fontSize: '12px', color: 'rgba(245,240,232,.4)' }}>
+                    {(u.kategorija?.trim() || 'Ostalo')} · {u.trajanje} min
+                  </div>
                   {u.opis && <div style={{ fontSize: '12px', color: 'rgba(245,240,232,.35)', marginTop: '6px' }}>{u.opis}</div>}
                 </div>
               ))}
@@ -1095,18 +1654,23 @@ export default function SalonLanding() {
         {activeView === 'booking' && !showForma && !uspjeh && (
           <div style={{ marginTop: '32px', textAlign: 'center' }}>
             <button
+              type="button"
+              disabled={Boolean(klijentUlogovan && clientSummary?.booking_blocked)}
               style={{
-                background: `linear-gradient(135deg,${gold},#b8960c)`,
-                color: '#0a0a0a',
+                background:
+                  klijentUlogovan && clientSummary?.booking_blocked
+                    ? 'rgba(245,240,232,.12)'
+                    : `linear-gradient(135deg,${gold},#b8960c)`,
+                color: klijentUlogovan && clientSummary?.booking_blocked ? 'rgba(245,240,232,.35)' : '#0a0a0a',
                 border: 'none',
                 padding: '16px 36px',
                 borderRadius: '28px',
                 fontWeight: 600,
                 fontSize: '16px',
-                cursor: 'pointer',
+                cursor: klijentUlogovan && clientSummary?.booking_blocked ? 'not-allowed' : 'pointer',
                 fontFamily: 'sans-serif',
               }}
-              onClick={() => setShowForma(true)}
+              onClick={() => otvoriZakazivanjePicker()}
             >
               Zakaži termin →
             </button>
@@ -1239,7 +1803,7 @@ export default function SalonLanding() {
           <div className="salon-nav-pills">
             <button
               type="button"
-              onClick={scrollToUsluge}
+              onClick={() => otvoriZakazivanjePicker()}
               style={{
                 background: activeView === 'booking' ? 'rgba(212,175,55,.12)' : 'transparent',
                 color: activeView === 'booking' ? gold : 'rgba(245,240,232,.65)',
@@ -1659,7 +2223,8 @@ export default function SalonLanding() {
             <button
               type="button"
               onClick={() => {
-                scrollToUsluge()
+                setMobileMenuOpen(false)
+                otvoriZakazivanjePicker()
               }}
               style={{
                 background: 'transparent',
@@ -1716,8 +2281,8 @@ export default function SalonLanding() {
             <button
               type="button"
               onClick={() => {
-                setShowForma(true)
-                scrollToUsluge()
+                setMobileMenuOpen(false)
+                otvoriZakazivanjePicker()
               }}
               style={{
                 background: 'rgba(212,175,55,.1)',
@@ -1764,6 +2329,119 @@ export default function SalonLanding() {
           </p>
         </div>
       </div>
+
+      {bookingPickerOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="booking-picker-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 200,
+            background: 'rgba(0,0,0,.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => setBookingPickerOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: 440,
+              width: '100%',
+              background: '#141414',
+              border: `0.5px solid ${goldBorder}`,
+              borderRadius: 18,
+              padding: '22px 20px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+            }}
+          >
+            <h2
+              id="booking-picker-title"
+              style={{ fontSize: '18px', fontWeight: 600, color: '#f5f0e8', marginBottom: '6px' }}
+            >
+              Izbor kategorije i usluge
+            </h2>
+            <p style={{ fontSize: '12px', color: 'rgba(245,240,232,.45)', marginBottom: '16px', lineHeight: 1.5 }}>
+              Izaberite kategoriju, zatim uslugu — otvoriće se forma za datum i vreme.
+            </p>
+            <label
+              style={{ fontSize: '10px', color: 'rgba(245,240,232,.45)', display: 'block', marginBottom: '6px' }}
+            >
+              KATEGORIJA
+            </label>
+            <select
+              value={bookingPickerKategorija}
+              onChange={(e) => setBookingPickerKategorija(e.target.value)}
+              style={{
+                width: '100%',
+                marginBottom: '16px',
+                padding: '10px 12px',
+                borderRadius: 10,
+                border: `0.5px solid ${goldBorder}`,
+                background: '#1a1a1a',
+                color: '#f5f0e8',
+                fontSize: '14px',
+              }}
+            >
+              {uslugeKategorije.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: '11px', color: 'rgba(245,240,232,.4)', marginBottom: '8px' }}>USLUGA</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {uslugeUFokusu.length === 0 ? (
+                <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.45)' }}>Nema usluga u ovoj kategoriji.</p>
+              ) : (
+                uslugeUFokusu.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => izaberiUsluguIzPickera(u)}
+                    style={{
+                      textAlign: 'left',
+                      padding: '12px 14px',
+                      borderRadius: 12,
+                      border: `0.5px solid ${goldBorder}`,
+                      background: '#1a1a1a',
+                      color: '#f5f0e8',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>{u.naziv}</span>
+                    <span style={{ marginLeft: 8, color: gold }}>{Number(u.cijena).toLocaleString()} RSD</span>
+                    <div style={{ fontSize: '11px', color: 'rgba(245,240,232,.38)', marginTop: '4px' }}>{u.trajanje} min</div>
+                  </button>
+                ))
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setBookingPickerOpen(false)}
+              style={{
+                marginTop: '16px',
+                width: '100%',
+                padding: '10px',
+                background: 'transparent',
+                border: '0.5px solid rgba(245,240,232,.15)',
+                color: 'rgba(245,240,232,.55)',
+                borderRadius: 10,
+                cursor: 'pointer',
+                fontSize: '13px',
+              }}
+            >
+              Zatvori
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {inAppToast && (
         <div

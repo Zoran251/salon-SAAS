@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { waitForClientSession } from '@/lib/wait-client-session'
 import { buildSalonSlug, fallbackSalonSlug } from '@/lib/slug'
 import { getAppRole } from '@/lib/user-role'
 import { getPublicSiteBase } from '@/lib/public-site-url'
@@ -26,6 +27,11 @@ export default function Dashboard() {
   const [usluge, setUsluge] = useState<any[]>([])
   const [lager, setLager] = useState<any[]>([])
   const [termini, setTermini] = useState<any[]>([])
+  const [crnaLista, setCrnaLista] = useState<any[]>([])
+  const [crnaRučnoTelefon, setCrnaRučnoTelefon] = useState('')
+  const [crnaRučnoIme, setCrnaRučnoIme] = useState('')
+  const [crnaRučnoLoading, setCrnaRučnoLoading] = useState(false)
+  const [crnaRučnoGreska, setCrnaRučnoGreska] = useState('')
   const [lojalnost, setLojalnost] = useState<any>(null)
   const [resolvedSlug, setResolvedSlug] = useState('')
   const [qrDataUrl, setQrDataUrl] = useState('')
@@ -33,7 +39,7 @@ export default function Dashboard() {
   const [qrLoading, setQrLoading] = useState(false)
   const [qrError, setQrError] = useState('')
   // ...ostatak state-a ostaje isti...
-  const [novaUsluga, setNovaUsluga] = useState({ naziv: '', cijena: '', trajanje: '', opis: '' })
+  const [novaUsluga, setNovaUsluga] = useState({ naziv: '', cijena: '', trajanje: '', opis: '', kategorija: 'Ostalo' })
   const [noviLager, setNoviLager] = useState({ naziv: '', kategorija: '', kolicina: '', minimum: '', jedinica: 'kom' })
   const [showNovaUsluga, setShowNovaUsluga] = useState(false)
   const [showNoviLager, setShowNoviLager] = useState(false)
@@ -50,7 +56,7 @@ export default function Dashboard() {
   const goldBorder = 'rgba(212,175,55,.25)'
   const muted = 'rgba(245,240,232,.45)'
   const text = '#f5f0e8'
-  const neprocitaniTermini = termini.filter(t => t.status !== 'potvrđen').length
+  const neprocitaniTermini = termini.filter(t => t.status !== 'potvrđen' && t.status !== 'otkazan').length
 
   // getSession() pri prvom renderu često vrati null dok Supabase ne učita sesiju iz localStorage.
   // onAuthStateChange + kratki retry sprječavaju lažni redirect na /login nakon uspješne prijave.
@@ -69,35 +75,30 @@ export default function Dashboard() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return
-      if ((event === 'INITIAL_SESSION' || event === 'SIGNED_IN') && session?.user) {
+      if (event === 'SIGNED_OUT') {
+        loaded = false
+        setAutentifikovan(false)
+        router.push('/login')
+        return
+      }
+      if (
+        session?.user &&
+        (event === 'INITIAL_SESSION' ||
+          event === 'SIGNED_IN' ||
+          event === 'TOKEN_REFRESHED')
+      ) {
         void loadDashboard(session.user.id)
       }
     })
 
     ;(async () => {
       try {
-        for (let i = 0; i < 35; i++) {
-          if (cancelled || loaded) return
-          const {
-            data: { session },
-            error: sessionError,
-          } = await supabase.auth.getSession()
-
-          if (sessionError) console.error('getSession:', sessionError)
-          if (session?.user) {
-            await loadDashboard(session.user.id)
-            return
-          }
-          await new Promise((r) => setTimeout(r, 80))
-        }
-        if (!cancelled && !loaded) {
-          const { data: { session: last } } = await supabase.auth.getSession()
-          if (last?.user) {
-            await loadDashboard(last.user.id)
-          } else {
-            console.log('Nema sesije nakon čekanja — login')
-            router.push('/login')
-          }
+        const session = await waitForClientSession()
+        if (cancelled || loaded) return
+        if (session?.user) {
+          await loadDashboard(session.user.id)
+        } else {
+          router.push('/login')
         }
       } catch (err) {
         console.error('Greška pri provjeri autentifikacije:', err)
@@ -193,6 +194,12 @@ export default function Dashboard() {
         .order('datum_vrijeme', { ascending: true })
 
       setTermini(terminiData || [])
+
+      const { data: crnaListaData, error: crnaListaErr } = await supabase
+        .from('kupci_crna_lista')
+        .select('*, saloni ( naziv )')
+        .order('created_at', { ascending: false })
+      if (!crnaListaErr) setCrnaLista(crnaListaData || [])
 
       // Učitaj lojalnost
       const { data: lojalnostData } = await supabase
@@ -351,6 +358,7 @@ export default function Dashboard() {
         cijena,
         trajanje,
         opis: novaUsluga.opis.trim(),
+        kategorija: novaUsluga.kategorija.trim() || 'Ostalo',
         aktivan: true
       }).select().single()
 
@@ -360,7 +368,7 @@ export default function Dashboard() {
       }
 
       setUsluge((prev) => [...prev, data])
-      setNovaUsluga({ naziv: '', cijena: '', trajanje: '', opis: '' })
+      setNovaUsluga({ naziv: '', cijena: '', trajanje: '', opis: '', kategorija: 'Ostalo' })
       setShowNovaUsluga(false)
     } catch {
       setUslugaGreska('Došlo je do greške. Pokušaj ponovo.')
@@ -416,6 +424,44 @@ export default function Dashboard() {
     }
     setSacuvano('lojalnost')
     setTimeout(() => setSacuvano(''), 3000)
+  }
+
+  const osveziCrnuListu = async () => {
+    const { data, error } = await supabase
+      .from('kupci_crna_lista')
+      .select('*, saloni ( naziv )')
+      .order('created_at', { ascending: false })
+    if (!error && data) setCrnaLista(data)
+  }
+
+  const dodajNaCrnuListu = async () => {
+    setCrnaRučnoGreska('')
+    const tel = crnaRučnoTelefon.trim()
+    if (!tel) {
+      setCrnaRučnoGreska('Unesite broj telefona.')
+      return
+    }
+    setCrnaRučnoLoading(true)
+    try {
+      const { data, error } = await supabase.rpc('salon_dodaj_kupca_u_crnu_listu', {
+        p_telefon: tel,
+        p_ime: crnaRučnoIme.trim() || null,
+      })
+      if (error) {
+        setCrnaRučnoGreska(error.message)
+        return
+      }
+      const r = data as { ok?: boolean; error?: string } | null
+      if (r && r.ok === false) {
+        setCrnaRučnoGreska(r.error || 'Dodavanje nije uspelo.')
+        return
+      }
+      setCrnaRučnoTelefon('')
+      setCrnaRučnoIme('')
+      await osveziCrnuListu()
+    } finally {
+      setCrnaRučnoLoading(false)
+    }
   }
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -489,7 +535,27 @@ export default function Dashboard() {
                   <div style={{ fontSize: '12px', color: muted }}>{t.usluge?.naziv || 'Bez usluge'} · {new Date(t.datum_vrijeme).toLocaleDateString('sr')}</div>
                 </div>
               </div>
-              <div style={{ fontSize: '11px', padding: '4px 10px', borderRadius: '20px', background: t.status === 'potvrđen' ? 'rgba(50,200,100,.1)' : goldFaint, color: t.status === 'potvrđen' ? '#4caf81' : gold, border: `0.5px solid ${t.status === 'potvrđen' ? 'rgba(50,200,100,.2)' : goldBorder}` }}>
+              <div
+                style={{
+                  fontSize: '11px',
+                  padding: '4px 10px',
+                  borderRadius: '20px',
+                  background:
+                    t.status === 'potvrđen'
+                      ? 'rgba(50,200,100,.1)'
+                      : t.status === 'otkazan'
+                        ? 'rgba(200,80,80,.12)'
+                        : goldFaint,
+                  color: t.status === 'potvrđen' ? '#4caf81' : t.status === 'otkazan' ? '#e07a7a' : gold,
+                  border: `0.5px solid ${
+                    t.status === 'potvrđen'
+                      ? 'rgba(50,200,100,.2)'
+                      : t.status === 'otkazan'
+                        ? 'rgba(220,100,100,.3)'
+                        : goldBorder
+                  }`,
+                }}
+              >
                 {t.status}
               </div>
             </div>
@@ -602,7 +668,9 @@ export default function Dashboard() {
             <div style={{ width: '42px', height: '42px', background: goldFaint, borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>💈</div>
             <div>
               <div style={{ fontSize: '15px', fontWeight: 500, color: text }}>{u.naziv}</div>
-              <div style={{ fontSize: '12px', color: muted }}>{u.trajanje} min · {Number(u.cijena).toLocaleString()} RSD</div>
+              <div style={{ fontSize: '12px', color: muted }}>
+                {(u.kategorija || 'Ostalo')} · {u.trajanje} min · {Number(u.cijena).toLocaleString()} RSD
+              </div>
               {u.opis && <div style={{ fontSize: '11px', color: 'rgba(245,240,232,.3)', marginTop: '2px' }}>{u.opis}</div>}
             </div>
           </div>
@@ -621,6 +689,7 @@ export default function Dashboard() {
             <div><label style={labelStyle}>NAZIV</label><input style={inputStyle} placeholder="Šišanje" value={novaUsluga.naziv} onChange={e => setNovaUsluga({ ...novaUsluga, naziv: e.target.value })} /></div>
             <div><label style={labelStyle}>CIJENA (RSD)</label><input style={inputStyle} placeholder="1500" value={novaUsluga.cijena} onChange={e => setNovaUsluga({ ...novaUsluga, cijena: e.target.value })} /></div>
             <div><label style={labelStyle}>TRAJANJE (min)</label><input style={inputStyle} placeholder="45" value={novaUsluga.trajanje} onChange={e => setNovaUsluga({ ...novaUsluga, trajanje: e.target.value })} /></div>
+            <div><label style={labelStyle}>KATEGORIJA</label><input style={inputStyle} placeholder="Šišanje" value={novaUsluga.kategorija} onChange={e => setNovaUsluga({ ...novaUsluga, kategorija: e.target.value })} /></div>
             <div style={{ gridColumn: '1/-1' }}><label style={labelStyle}>OPIS (opciono)</label><input style={inputStyle} placeholder="Kratki opis usluge" value={novaUsluga.opis} onChange={e => setNovaUsluga({ ...novaUsluga, opis: e.target.value })} /></div>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
@@ -711,10 +780,30 @@ export default function Dashboard() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ fontSize: '11px', padding: '4px 10px', borderRadius: '20px', background: t.status === 'potvrđen' ? 'rgba(50,200,100,.1)' : goldFaint, color: t.status === 'potvrđen' ? '#4caf81' : gold, border: `0.5px solid ${t.status === 'potvrđen' ? 'rgba(50,200,100,.2)' : goldBorder}` }}>
+                <div
+                  style={{
+                    fontSize: '11px',
+                    padding: '4px 10px',
+                    borderRadius: '20px',
+                    background:
+                      t.status === 'potvrđen'
+                        ? 'rgba(50,200,100,.1)'
+                        : t.status === 'otkazan'
+                          ? 'rgba(200,80,80,.12)'
+                          : goldFaint,
+                    color: t.status === 'potvrđen' ? '#4caf81' : t.status === 'otkazan' ? '#e07a7a' : gold,
+                    border: `0.5px solid ${
+                      t.status === 'potvrđen'
+                        ? 'rgba(50,200,100,.2)'
+                        : t.status === 'otkazan'
+                          ? 'rgba(220,100,100,.3)'
+                          : goldBorder
+                    }`,
+                  }}
+                >
                   {t.status}
                 </div>
-                {t.status !== 'potvrđen' && <button style={btnGold} onClick={() => potvrdiTermin(t.id)}>Potvrdi</button>}
+                {t.status !== 'potvrđen' && t.status !== 'otkazan' && <button style={btnGold} onClick={() => potvrdiTermin(t.id)}>Potvrdi</button>}
               </div>
             </div>
           ))
@@ -846,6 +935,80 @@ export default function Dashboard() {
         <button style={{ ...btnGold, padding: '14px', borderRadius: '12px', fontSize: '14px', width: '100%' }} onClick={sacuvajLojalnost}>
           Sačuvaj program lojalnosti ✓
         </button>
+      </div>
+      <div
+        style={{
+          ...cardStyle,
+          border: '0.5px solid rgba(200,80,80,.35)',
+          background: crnaLista.length > 0 ? 'rgba(200,40,40,.06)' : 'rgba(255,255,255,.02)',
+        }}
+      >
+        <h3 style={{ fontSize: '15px', fontWeight: 500, color: crnaLista.length > 0 ? '#e8a0a0' : text, marginBottom: '10px' }}>
+          Crna lista kupaca
+        </h3>
+        <p style={{ fontSize: '12px', color: muted, marginBottom: '14px', lineHeight: 1.55 }}>
+          Prikaz je isti za sve salone u aplikaciji. Zakazivanje je blokirano za brojeve na listi. Ručno možete dodati samo klijenta koji je već kod vas u bazi (isti telefon kao kod zakazivanja).
+        </p>
+        <div style={{ marginBottom: '18px', paddingBottom: '18px', borderBottom: '0.5px solid rgba(255,255,255,.08)' }}>
+          <div style={{ fontSize: '12px', fontWeight: 500, color: text, marginBottom: '10px' }}>Dodaj svog klijenta ručno</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: '12px', marginBottom: '12px' }}>
+            <div>
+              <label style={labelStyle}>TELEFON</label>
+              <input
+                style={inputStyle}
+                placeholder="npr. 064 123 4567"
+                value={crnaRučnoTelefon}
+                onChange={(e) => { setCrnaRučnoTelefon(e.target.value); setCrnaRučnoGreska('') }}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>IME (opciono)</label>
+              <input
+                style={inputStyle}
+                placeholder="Marko Marković"
+                value={crnaRučnoIme}
+                onChange={(e) => { setCrnaRučnoIme(e.target.value); setCrnaRučnoGreska('') }}
+              />
+            </div>
+          </div>
+          {crnaRučnoGreska ? (
+            <p style={{ fontSize: '12px', color: '#ff8a8a', marginBottom: '10px' }}>{crnaRučnoGreska}</p>
+          ) : null}
+          <button
+            type="button"
+            style={{ ...btnGold, padding: '12px 18px', fontSize: '13px' }}
+            disabled={crnaRučnoLoading}
+            onClick={() => void dodajNaCrnuListu()}
+          >
+            {crnaRučnoLoading ? 'Dodavanje…' : 'Dodaj na crnu listu'}
+          </button>
+        </div>
+        {crnaLista.length === 0 ? (
+          <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.35)', fontStyle: 'italic' }}>Trenutno nema unosa na crnoj listi.</p>
+        ) : (
+          crnaLista.map((r, idx) => (
+            <div
+              key={r.id}
+              style={{
+                padding: '12px 0',
+                borderBottom: idx < crnaLista.length - 1 ? '0.5px solid rgba(255,255,255,.06)' : 'none',
+              }}
+            >
+              <div style={{ fontSize: '14px', fontWeight: 500, color: text }}>{r.ime || '—'}</div>
+              <div style={{ fontSize: '12px', color: muted }}>{r.telefon}</div>
+              <div style={{ fontSize: '11px', color: 'rgba(245,240,232,.32)', marginTop: '4px' }}>
+                {r.razlog === 'salon_rucno'
+                  ? `Ručno · ${r.saloni?.naziv?.trim() || 'Nepoznat salon'}`
+                  : r.razlog === 'kasno_otkazivanje'
+                    ? `Kasno otkazivanje${r.saloni?.naziv ? ` · ${r.saloni.naziv}` : ''}`
+                    : r.razlog}
+                {' · '}
+                {new Date(r.created_at).toLocaleString('sr')}
+                {typeof r.minuta_pre_otkazivanja === 'number' ? ` · ~${r.minuta_pre_otkazivanja} min pre termina` : ''}
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   )

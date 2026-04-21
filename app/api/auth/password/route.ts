@@ -13,6 +13,7 @@ export async function POST(request: Request) {
     const action = body.action as string
     const email = typeof body.email === 'string' ? body.email.trim() : ''
     const password = typeof body.password === 'string' ? body.password : ''
+    const authContext = body.auth_context === 'customer' ? 'customer' : body.auth_context === 'salon' ? 'salon' : null
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email i lozinka su obavezni.' }, { status: 400 })
@@ -38,6 +39,22 @@ export async function POST(request: Request) {
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 401 })
       }
+
+      if (authContext === 'customer' && data.user?.id) {
+        const { data: blocked, error: rpcErr } = await supabase.rpc('je_auth_blokiran', {
+          p_uid: data.user.id,
+        })
+        if (!rpcErr && blocked === true) {
+          return NextResponse.json(
+            {
+              error:
+                'Pristup je blokiran: vaš nalog je na crnoj listi. Ne možete se prijaviti kao kupac. Za pitanja kontaktirajte salon.',
+            },
+            { status: 403 },
+          )
+        }
+      }
+
       return NextResponse.json({
         session: data.session
           ? {
