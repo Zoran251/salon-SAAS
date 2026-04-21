@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { buildSalonSlug, fallbackSalonSlug } from '@/lib/slug'
 import { getAppRole } from '@/lib/user-role'
+import { getPublicSiteBase } from '@/lib/public-site-url'
 
 const navItems = [
   { id: 'pregled', icon: '🏠', label: 'Pregled' },
@@ -221,7 +222,7 @@ export default function Dashboard() {
     let cancelled = false
     setQrLoading(true)
     setQrError('')
-    const fullUrl = `${window.location.origin}/salon/${resolvedSlug}`
+    const fullUrl = `${getPublicSiteBase()}/salon/${resolvedSlug}`
 
     ;(async () => {
       try {
@@ -729,14 +730,20 @@ export default function Dashboard() {
         <div style={{ background: goldFaint, border: `0.5px solid ${goldBorder}`, borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
           <div style={{ fontSize: '11px', color: muted, marginBottom: '6px' }}>TVOJ LINK</div>
           <div style={{ fontSize: '15px', color: gold, fontWeight: 500, wordBreak: 'break-all' }}>
-            {typeof window !== 'undefined' ? window.location.origin : ''}/salon/{resolvedSlug}
+            {getPublicSiteBase() || '…'}/salon/{resolvedSlug}
           </div>
+          {!process.env.NEXT_PUBLIC_SITE_URL?.trim() && typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? (
+            <p style={{ fontSize: 11, color: 'rgba(245,240,232,.35)', marginTop: 8, lineHeight: 1.45 }}>
+              Lokalni prikaz: QR i kopirani link koriste localhost. Za produkciju dodaj u Vercel (ili .env.local) varijablu{' '}
+              <code style={{ color: gold }}>NEXT_PUBLIC_SITE_URL</code> punim URL-om salona (npr. https://app.vercel.app).
+            </p>
+          ) : null}
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button
             style={btnGold}
             disabled={!resolvedSlug}
-            onClick={() => navigator.clipboard.writeText(`${window.location.origin}/salon/${resolvedSlug}`)}
+            onClick={() => navigator.clipboard.writeText(`${getPublicSiteBase()}/salon/${resolvedSlug}`)}
           >
             Kopiraj link
           </button>
