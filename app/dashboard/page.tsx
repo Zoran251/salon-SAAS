@@ -27,6 +27,10 @@ export default function Dashboard() {
   const [termini, setTermini] = useState<any[]>([])
   const [lojalnost, setLojalnost] = useState<any>(null)
   const [resolvedSlug, setResolvedSlug] = useState('')
+  const [qrDataUrl, setQrDataUrl] = useState('')
+  const [qrSvg, setQrSvg] = useState('')
+  const [qrLoading, setQrLoading] = useState(false)
+  const [qrError, setQrError] = useState('')
   // ...ostatak state-a ostaje isti...
   const [novaUsluga, setNovaUsluga] = useState({ naziv: '', cijena: '', trajanje: '', opis: '' })
   const [noviLager, setNoviLager] = useState({ naziv: '', kategorija: '', kolicina: '', minimum: '', jedinica: 'kom' })
@@ -204,6 +208,80 @@ export default function Dashboard() {
     } finally {
       setUcitavanje(false)
     }
+  }
+
+  useEffect(() => {
+    if (!resolvedSlug || typeof window === 'undefined') {
+      setQrDataUrl('')
+      setQrSvg('')
+      setQrError('')
+      setQrLoading(false)
+      return
+    }
+    let cancelled = false
+    setQrLoading(true)
+    setQrError('')
+    const fullUrl = `${window.location.origin}/salon/${resolvedSlug}`
+
+    ;(async () => {
+      try {
+        const QR = (await import('qrcode')).default
+        const [png, svg] = await Promise.all([
+          QR.toDataURL(fullUrl, {
+            width: 240,
+            margin: 2,
+            errorCorrectionLevel: 'M',
+            color: { dark: '#0a0a0a', light: '#ffffff' },
+          }),
+          QR.toString(fullUrl, {
+            type: 'svg',
+            margin: 2,
+            color: { dark: '#0a0a0a', light: '#ffffff' },
+          }),
+        ])
+        if (!cancelled) {
+          setQrDataUrl(png)
+          setQrSvg(svg)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setQrError(e instanceof Error ? e.message : 'QR kod se nije mogao generisati.')
+          setQrDataUrl('')
+          setQrSvg('')
+        }
+      } finally {
+        if (!cancelled) setQrLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [resolvedSlug])
+
+  const preuzmiQrPng = () => {
+    if (!qrDataUrl || !resolvedSlug) return
+    const a = document.createElement('a')
+    a.href = qrDataUrl
+    a.download = `salon-${resolvedSlug}-qr.png`
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
+  const preuzmiQrSvg = () => {
+    if (!qrSvg || !resolvedSlug) return
+    const blob = new Blob([qrSvg], { type: 'image/svg+xml;charset=utf-8' })
+    const u = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = u
+    a.download = `salon-${resolvedSlug}-qr.svg`
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(u)
   }
 
   const sacuvajProfil = async () => {
@@ -668,21 +746,44 @@ export default function Dashboard() {
         </div>
       </div>
       <div style={cardStyle}>
-        <h3 style={{ fontSize: '15px', fontWeight: 500, color: text, marginBottom: '16px' }}>QR Kod</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
-          <div style={{ width: '120px', height: '120px', background: gold, borderRadius: '12px', padding: '10px', display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: '3px', flexShrink: 0 }}>
-            {Array.from({ length: 49 }).map((_, i) => (
-              <div key={i} style={{ background: [0, 1, 2, 7, 8, 9, 14, 15, 16, 6, 13, 20, 21, 28, 35, 42, 43, 44, 45, 46, 47, 48, 27, 34, 41].includes(i) ? '#0a0a0a' : 'transparent', borderRadius: '1px' }} />
-            ))}
+        <h3 style={{ fontSize: '15px', fontWeight: 500, color: text, marginBottom: '16px' }}>QR kod</h3>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '24px', flexWrap: 'wrap' }}>
+          <div
+            style={{
+              width: 132,
+              height: 132,
+              flexShrink: 0,
+              background: '#fff',
+              borderRadius: 12,
+              padding: 6,
+              border: `0.5px solid ${goldBorder}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {qrLoading ? (
+              <span style={{ fontSize: 12, color: muted }}>Generisanje…</span>
+            ) : qrError ? (
+              <span style={{ fontSize: 11, color: '#ff8a8a', textAlign: 'center', padding: 4 }}>{qrError}</span>
+            ) : qrDataUrl ? (
+              <img src={qrDataUrl} alt={`QR kod za ${resolvedSlug}`} width={120} height={120} style={{ display: 'block' }} />
+            ) : (
+              <span style={{ fontSize: 12, color: muted }}>Nema sluga</span>
+            )}
           </div>
-          <div>
+          <div style={{ minWidth: 0, flex: '1 1 200px' }}>
             <p style={{ fontSize: '13px', color: muted, lineHeight: 1.7, marginBottom: '14px' }}>
               Odštampaj QR kod i postavi ga u salon.<br />
-              Klijenti skeniranjem dolaze na tvoju stranicu.
+              Klijenti skeniranjem dolaze na tvoju stranicu (isti link kao gore).
             </p>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <button style={btnGold}>Preuzmi PNG</button>
-              <button style={btnOutline}>Preuzmi SVG</button>
+              <button type="button" style={btnGold} disabled={!qrDataUrl || qrLoading} onClick={preuzmiQrPng}>
+                Preuzmi PNG
+              </button>
+              <button type="button" style={btnOutline} disabled={!qrSvg || qrLoading} onClick={preuzmiQrSvg}>
+                Preuzmi SVG
+              </button>
             </div>
           </div>
         </div>
