@@ -1,4 +1,7 @@
-import { createClient, type Json, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+
+/** JSON vrednost kao u generisanim Supabase tipovima (Json iz novijih verzija paketa nije uvek izvezen). */
+type DbJson = string | number | boolean | null | { [key: string]: DbJson | undefined } | DbJson[]
 import { getPublicSupabaseEnv } from '@/lib/env-supabase'
 
 export type Database = {
@@ -199,7 +202,7 @@ export type Database = {
     Functions: {
       salon_dodaj_kupca_u_crnu_listu: {
         Args: { p_telefon: string; p_ime?: string | null }
-        Returns: Json
+        Returns: DbJson
       }
       je_telefon_blokiran: {
         Args: { p_telefon: string }
