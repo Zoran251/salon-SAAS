@@ -39,7 +39,7 @@ export default function Dashboard() {
   const [qrLoading, setQrLoading] = useState(false)
   const [qrError, setQrError] = useState('')
   // ...ostatak state-a ostaje isti...
-  const [novaUsluga, setNovaUsluga] = useState({ naziv: '', cijena: '', trajanje: '', opis: '', kategorija: 'Ostalo' })
+  const [novaUsluga, setNovaUsluga] = useState({ naziv: '', cijena: '', trajanje: '', opis: '' })
   const [noviLager, setNoviLager] = useState({ naziv: '', kategorija: '', kolicina: '', minimum: '', jedinica: 'kom' })
   const [showNovaUsluga, setShowNovaUsluga] = useState(false)
   const [showNoviLager, setShowNoviLager] = useState(false)
@@ -358,8 +358,7 @@ export default function Dashboard() {
         cijena,
         trajanje,
         opis: novaUsluga.opis.trim(),
-        kategorija: novaUsluga.kategorija.trim() || 'Ostalo',
-        aktivan: true
+        aktivan: true,
       }).select().single()
 
       if (error || !data) {
@@ -368,7 +367,7 @@ export default function Dashboard() {
       }
 
       setUsluge((prev) => [...prev, data])
-      setNovaUsluga({ naziv: '', cijena: '', trajanje: '', opis: '', kategorija: 'Ostalo' })
+      setNovaUsluga({ naziv: '', cijena: '', trajanje: '', opis: '' })
       setShowNovaUsluga(false)
     } catch {
       setUslugaGreska('Došlo je do greške. Pokušaj ponovo.')
@@ -669,7 +668,7 @@ export default function Dashboard() {
             <div>
               <div style={{ fontSize: '15px', fontWeight: 500, color: text }}>{u.naziv}</div>
               <div style={{ fontSize: '12px', color: muted }}>
-                {(u.kategorija || 'Ostalo')} · {u.trajanje} min · {Number(u.cijena).toLocaleString()} RSD
+                {u.trajanje} min · {Number(u.cijena).toLocaleString()} RSD
               </div>
               {u.opis && <div style={{ fontSize: '11px', color: 'rgba(245,240,232,.3)', marginTop: '2px' }}>{u.opis}</div>}
             </div>
@@ -689,7 +688,6 @@ export default function Dashboard() {
             <div><label style={labelStyle}>NAZIV</label><input style={inputStyle} placeholder="Šišanje" value={novaUsluga.naziv} onChange={e => setNovaUsluga({ ...novaUsluga, naziv: e.target.value })} /></div>
             <div><label style={labelStyle}>CIJENA (RSD)</label><input style={inputStyle} placeholder="1500" value={novaUsluga.cijena} onChange={e => setNovaUsluga({ ...novaUsluga, cijena: e.target.value })} /></div>
             <div><label style={labelStyle}>TRAJANJE (min)</label><input style={inputStyle} placeholder="45" value={novaUsluga.trajanje} onChange={e => setNovaUsluga({ ...novaUsluga, trajanje: e.target.value })} /></div>
-            <div><label style={labelStyle}>KATEGORIJA</label><input style={inputStyle} placeholder="Šišanje" value={novaUsluga.kategorija} onChange={e => setNovaUsluga({ ...novaUsluga, kategorija: e.target.value })} /></div>
             <div style={{ gridColumn: '1/-1' }}><label style={labelStyle}>OPIS (opciono)</label><input style={inputStyle} placeholder="Kratki opis usluge" value={novaUsluga.opis} onChange={e => setNovaUsluga({ ...novaUsluga, opis: e.target.value })} /></div>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
@@ -895,7 +893,7 @@ export default function Dashboard() {
         </div>
       )}
       <div style={cardStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
           <h3 style={{ fontSize: '15px', fontWeight: 500, color: text }}>Program lojalnosti</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '13px', color: muted }}>{lojalnost?.aktivan ? 'Aktivan' : 'Neaktivan'}</span>
@@ -905,6 +903,9 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+        <p style={{ fontSize: '12px', color: muted, lineHeight: 1.55, marginBottom: '18px' }}>
+          Kupac jednim nalogom može ići kod više salona; kod vas se lojalnost računa samo za termine ovde — u drugom salonu ima poseban brojač.
+        </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '14px', marginBottom: '20px' }}>
           <div>
             <label style={labelStyle}>TIP NAGRADE</label>

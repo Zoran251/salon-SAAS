@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { getPublicSupabaseEnv } from '@/lib/env-supabase'
+import { ensureSalonClientForCustomer } from '@/lib/ensure-customer-salon-client'
 import { SUPABASE_PUBLIC_ENV_MISSING } from '@/lib/supabase-service-role-hint'
 
 function getAnonClient() {
@@ -54,19 +55,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
     }
 
-    const { data: clientData, error: clientError } = await userClient
-      .from('salon_clients')
-      .select('id, ime, telefon, email')
-      .eq('salon_id', salonId)
-      .eq('auth_user_id', userData.user.id)
-      .maybeSingle()
-
-    if (clientError) return NextResponse.json({ error: clientError.message }, { status: 500 })
-    if (!clientData) return NextResponse.json({ error: 'Klijent nije povezan sa ovim salonom.' }, { status: 404 })
+    const ensured = await ensureSalonClientForCustomer(userClient, salonId, userData.user)
+    if (!ensured.ok) {
+      return NextResponse.json({ error: ensured.error }, { status: ensured.status })
+    }
+    const clientData = ensured.client
 
     const { data: appointments, error: appointmentsError } = await userClient
       .from('termini')
-      .select('id, datum_vrijeme, status, ime_klijenta, usluga_id, napomena, usluge(naziv)')
+      .select('id, datum_vrijeme, status, ime_klijenta, telefon_klijenta, usluga_id, napomena, usluge(naziv)')
       .eq('salon_id', salonId)
       .eq('client_id', clientData.id)
       .order('datum_vrijeme', { ascending: false })
@@ -80,7 +77,12 @@ export async function GET(request: Request) {
       .eq('client_id', clientData.id)
       .maybeSingle()
 
-    if (loyaltyError) return NextResponse.json({ error: loyaltyError.message }, { status: 500 })
+    const loyaltyMissing =
+      loyaltyError &&
+      /loyalty_accounts|schema cache|does not exist/i.test(loyaltyError.message)
+    if (loyaltyError && !loyaltyMissing) {
+      return NextResponse.json({ error: loyaltyError.message }, { status: 500 })
+    }
 
     const { data: notifRows, error: notifErr } = await userClient
       .from('notifications')
@@ -107,7 +109,10 @@ export async function GET(request: Request) {
       client: clientData,
       stats,
       booking_blocked,
-      loyalty: loyaltyData || { visits_count: 0, progress_percent: 0, reward_ready: false },
+      loyalty:
+        loyaltyData && !loyaltyError
+          ? loyaltyData
+          : { visits_count: 0, progress_percent: 0, reward_ready: false },
       appointments: allAppointments.slice(0, 6),
       notifications: notifRows || [],
     })
@@ -149,15 +154,11 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
     }
 
-    const { data: clientData, error: clientError } = await userClient
-      .from('salon_clients')
-      .select('id')
-      .eq('salon_id', salonId)
-      .eq('auth_user_id', userData.user.id)
-      .maybeSingle()
-
-    if (clientError) return NextResponse.json({ error: clientError.message }, { status: 500 })
-    if (!clientData) return NextResponse.json({ error: 'Klijent nije povezan sa ovim salonom.' }, { status: 404 })
+    const ensured = await ensureSalonClientForCustomer(userClient, salonId, userData.user)
+    if (!ensured.ok) {
+      return NextResponse.json({ error: ensured.error }, { status: ensured.status })
+    }
+    const clientData = ensured.client
 
     const body = (await request.json()) as {
       ime?: string

@@ -1,5 +1,7 @@
 # Client Portal Plan (Salon-specific)
 
+> **Aktuelno stanje implementacije i backlog:** vidi **[STANJE_PROJEKTA.md](./STANJE_PROJEKTA.md)**. Ovaj fajl zadržavamo kao istorijski arhitektonski nacrt.
+
 This plan is tailored to the current app architecture:
 - Salon owner app: `app/dashboard/page.tsx`
 - Public salon page: `app/salon/[slug]/page.tsx`

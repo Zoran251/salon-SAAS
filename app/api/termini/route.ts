@@ -1,5 +1,28 @@
 import { NextResponse } from 'next/server'
 import { getServerSupabaseClient } from '@/lib/server-supabase'
+import { storageTerminStatus } from '@/lib/termin-status'
+
+export const dynamic = 'force-dynamic'
+
+/** PostgREST / supabase-js ponekad vraća skalar kao string, a ponekad ugnježđeno. */
+function unwrapRpcText(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null
+  if (typeof raw === 'string') return raw.length > 0 ? raw : null
+  if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw)
+  if (Array.isArray(raw)) {
+    if (raw.length === 0) return null
+    const first = raw[0]
+    if (typeof first === 'string') return first.length > 0 ? first : null
+    if (first !== null && typeof first === 'object') return unwrapRpcText(first)
+  }
+  if (typeof raw === 'object') {
+    for (const v of Object.values(raw as Record<string, unknown>)) {
+      const inner = unwrapRpcText(v)
+      if (inner) return inner
+    }
+  }
+  return null
+}
 
 export async function POST(request: Request) {
   try {
@@ -80,6 +103,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Neuspješno povezivanje klijenta sa salonom.' }, { status: 500 })
     }
 
+    if (authUserId) {
+      await supabase
+        .from('salon_clients')
+        .update({ auth_user_id: authUserId })
+        .eq('id', clientId)
+        .is('auth_user_id', null)
+    }
+
     const { data: inserted, error } = await supabase
       .from('termini')
       .insert({
@@ -106,7 +137,8 @@ export async function POST(request: Request) {
         { status: 500 }
       )
     }
-    return NextResponse.json({ success: true, termin_id: inserted?.id ?? null })
+    const terminIdOut = inserted?.id != null ? String(inserted.id) : null
+    return NextResponse.json({ success: true, termin_id: terminIdOut })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Greška servera'
     return NextResponse.json({ error: message }, { status: 500 })
@@ -129,40 +161,51 @@ export async function GET(request: Request) {
   if (!salon_id) return NextResponse.json({ error: 'Nedostaje salon_id' }, { status: 400 })
 
   if (statusCheck === '1') {
-    const termin_id = searchParams.get('termin_id')
+    const termin_id_raw = searchParams.get('termin_id')
     const ime = searchParams.get('ime')
     const telefon = searchParams.get('telefon')
     const datum_vrijeme = searchParams.get('datum_vrijeme')
 
-    if (termin_id) {
-      const { data, error } = await supabase
-        .from('termini')
-        .select('status')
-        .eq('salon_id', salon_id)
-        .eq('id', termin_id)
-        .maybeSingle()
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const termin_id = termin_id_raw && uuidRe.test(termin_id_raw.trim()) ? termin_id_raw.trim() : null
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-      return NextResponse.json({ status: data?.status || null })
-    }
-
-    if (!ime || !telefon || !datum_vrijeme) {
+    if (!termin_id && (!ime || !telefon || !datum_vrijeme)) {
       return NextResponse.json({ error: 'Nedostaju podaci za provjeru statusa termina' }, { status: 400 })
     }
 
-    const { data, error } = await supabase
-      .from('termini')
-      .select('status')
-      .eq('salon_id', salon_id)
-      .eq('ime_klijenta', ime)
-      .eq('telefon_klijenta', telefon)
-      .eq('datum_vrijeme', datum_vrijeme)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const { data: rpcStatus, error: rpcErr } = await supabase.rpc('get_public_termin_status', {
+      p_salon_id: salon_id,
+      p_termin_id: termin_id,
+      p_ime: termin_id ? null : ime,
+      p_telefon: termin_id ? null : telefon,
+      p_datum_vrijeme: termin_id ? null : datum_vrijeme,
+    })
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ status: data?.status || null })
+    if (rpcErr) {
+      const missingFn =
+        /get_public_termin_status|does not exist/i.test(rpcErr.message) &&
+        /function|Could not find/i.test(rpcErr.message)
+      return NextResponse.json(
+        {
+          error: missingFn
+            ? 'Baza: pokreni migraciju db/migrations/2026-04-30_get_public_termin_status_rpc.sql (funkcija get_public_termin_status).'
+            : rpcErr.message,
+        },
+        { status: missingFn ? 503 : 500 }
+      )
+    }
+
+    const rawStatus = unwrapRpcText(rpcStatus)
+    const status = rawStatus != null ? storageTerminStatus(rawStatus) : null
+    return NextResponse.json(
+      { status: status ?? null },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+          Pragma: 'no-cache',
+        },
+      }
+    )
   }
 
   const { data, error } = await supabase

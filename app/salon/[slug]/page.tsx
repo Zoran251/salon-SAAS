@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { waitForClientSession } from '@/lib/wait-client-session'
 import { getAppRole } from '@/lib/user-role'
+import { isTerminOtkazan, isTerminPotvrdjen, storageTerminStatus } from '@/lib/termin-status'
 
 interface Usluga {
   id: string
@@ -81,6 +82,7 @@ interface ClientSummary {
     datum_vrijeme: string
     status: string
     ime_klijenta?: string
+    telefon_klijenta?: string | null
     usluga_id?: string | null
     napomena?: string | null
     usluge?: { naziv?: string } | null
@@ -140,6 +142,7 @@ export default function SalonLanding() {
   const [greska, setGreska] = useState('')
   const [statusLoading, setStatusLoading] = useState(false)
   const [bookingNotif, setBookingNotif] = useState<BookingNotification | null>(null)
+  const bookingNotifRef = useRef<BookingNotification | null>(null)
   const [clientAuthSuccess, setClientAuthSuccess] = useState('')
   const [klijentUlogovan, setKlijentUlogovan] = useState(false)
   const [guestAuthCollapsed, setGuestAuthCollapsed] = useState(false)
@@ -321,9 +324,10 @@ export default function SalonLanding() {
     }
   }, [salon?.id])
 
-  const ucitajClientSummary = useCallback(async () => {
+  const ucitajClientSummary = useCallback(async (opts?: { silent?: boolean }) => {
     if (!salon?.id) return
-    setSummaryLoading(true)
+    const silent = Boolean(opts?.silent)
+    if (!silent) setSummaryLoading(true)
     setClientMeError('')
     try {
       const { data: sessionData } = await supabase.auth.getSession()
@@ -335,7 +339,7 @@ export default function SalonLanding() {
       }
 
       const params = new URLSearchParams({ auth_token: token, salon_id: salon.id })
-      const res = await fetch(`/api/clients/me?${params.toString()}`)
+      const res = await fetch(`/api/clients/me?${params.toString()}`, { cache: 'no-store' })
       const data = (await res.json()) as { error?: string } & Partial<ClientSummary>
       if (!res.ok || data.error) {
         setClientSummary(null)
@@ -345,7 +349,7 @@ export default function SalonLanding() {
       setClientMeError('')
       setClientSummary(data as ClientSummary)
     } finally {
-      setSummaryLoading(false)
+      if (!silent) setSummaryLoading(false)
     }
   }, [salon?.id])
 
@@ -404,7 +408,7 @@ export default function SalonLanding() {
   /** In-app obaveštenja: osvežavanje na celoj stranici dok je kupac ulogovan. */
   useEffect(() => {
     if (!klijentUlogovan || !salon?.id) return
-    const id = window.setInterval(() => void ucitajClientSummary(), 30000)
+    const id = window.setInterval(() => void ucitajClientSummary({ silent: true }), 30000)
     return () => window.clearInterval(id)
   }, [klijentUlogovan, salon?.id, ucitajClientSummary])
 
@@ -480,13 +484,20 @@ export default function SalonLanding() {
   }, [slug])
 
   useEffect(() => {
+    bookingNotifRef.current = bookingNotif
+  }, [bookingNotif])
+
+  useEffect(() => {
     if (!slug || typeof window === 'undefined') return
     const saved = window.localStorage.getItem(`booking:${slug}`)
     if (!saved) return
 
     try {
       const parsed = JSON.parse(saved) as BookingNotification
-      if (parsed?.datum_vrijeme) setBookingNotif(parsed)
+      if (parsed?.datum_vrijeme) {
+        setBookingNotif(parsed)
+        bookingNotifRef.current = parsed
+      }
     } catch {
       // Ignore invalid localStorage data.
     }
@@ -502,44 +513,111 @@ export default function SalonLanding() {
   }, [slug])
 
   const provjeriStatusTermina = useCallback(async () => {
-    if (!bookingNotif) return
+    const n = bookingNotifRef.current
+    if (!n) return
     setStatusLoading(true)
     try {
       const params = new URLSearchParams({
         status_check: '1',
-        salon_id: bookingNotif.salon_id,
-        ime: bookingNotif.ime,
-        telefon: bookingNotif.telefon,
-        datum_vrijeme: bookingNotif.datum_vrijeme,
+        salon_id: n.salon_id,
+        ime: n.ime,
+        telefon: n.telefon,
+        datum_vrijeme: n.datum_vrijeme,
+        _: String(Date.now()),
       })
-      if (bookingNotif.termin_id) params.set('termin_id', bookingNotif.termin_id)
-      const res = await fetch(`/api/termini?${params.toString()}`)
-      const data = await res.json()
+      if (n.termin_id) params.set('termin_id', n.termin_id)
+      const res = await fetch(`/api/termini?${params.toString()}`, { cache: 'no-store' })
+      const data = (await res.json()) as { error?: string; status?: string | null }
       if (data.error) {
         setGreska(data.error)
         return
       }
-      if (data.status) {
-        const nextNotif = { ...bookingNotif, status: data.status as string }
+      const s = data.status != null ? storageTerminStatus(String(data.status)) : ''
+      const prev = storageTerminStatus(n.status)
+      if (s.length > 0 && s !== prev) {
+        const nextNotif = { ...n, status: s }
+        bookingNotifRef.current = nextNotif
         setBookingNotif(nextNotif)
         sacuvajBookingNotif(nextNotif)
+        if (klijentUlogovan) void ucitajClientSummary({ silent: true })
       }
     } catch {
       setGreska('Ne možemo provjeriti status trenutno. Pokušajte ponovo.')
     } finally {
       setStatusLoading(false)
     }
-  }, [bookingNotif, sacuvajBookingNotif])
+  }, [sacuvajBookingNotif, klijentUlogovan, ucitajClientSummary])
 
   useEffect(() => {
-    if (!bookingNotif || bookingNotif.status === 'potvrđen' || bookingNotif.status === 'otkazan') return
+    if (!bookingNotif || isTerminPotvrdjen(bookingNotif.status) || isTerminOtkazan(bookingNotif.status)) return
 
+    void provjeriStatusTermina()
     const intervalId = window.setInterval(() => {
       void provjeriStatusTermina()
-    }, 15000)
+    }, 5000)
 
-    return () => window.clearInterval(intervalId)
-  }, [bookingNotif, provjeriStatusTermina])
+    let summaryPoll: ReturnType<typeof window.setInterval> | undefined
+    if (klijentUlogovan) {
+      void ucitajClientSummary({ silent: true })
+      summaryPoll = window.setInterval(() => void ucitajClientSummary({ silent: true }), 6000)
+    }
+
+    return () => {
+      window.clearInterval(intervalId)
+      if (summaryPoll) window.clearInterval(summaryPoll)
+    }
+  }, [bookingNotif, provjeriStatusTermina, klijentUlogovan, ucitajClientSummary])
+
+  /** Kad salon potvrdi: obaveštenja, lista termina iz /api/clients/me ili različit ISO za datum — uskladi karticu. */
+  useEffect(() => {
+    const pending = bookingNotifRef.current
+    if (!pending || isTerminPotvrdjen(pending.status) || isTerminOtkazan(pending.status)) return
+
+    const normDatum = (iso: string) => {
+      const t = iso.replace(' ', 'T').replace(/(\.\d{3})?Z?$/, '').replace(/\+00:00$/, '')
+      return t.length >= 16 ? t.slice(0, 16) : t
+    }
+
+    if (clientSummary?.notifications?.length && pending.termin_id) {
+      const confirmed = clientSummary.notifications.some(
+        (n) =>
+          n.tip === 'appointment_confirmed' &&
+          n.appointment_id &&
+          n.appointment_id === pending.termin_id
+      )
+      if (confirmed) {
+        const nextNotif = { ...pending, status: 'potvrđen' as const }
+        bookingNotifRef.current = nextNotif
+        setBookingNotif(nextNotif)
+        sacuvajBookingNotif(nextNotif)
+        return
+      }
+    }
+
+    if (!clientSummary?.appointments?.length) return
+
+    const normTel = (t: string) => t.replace(/\s/g, '').replace(/^\+/g, '')
+    const pendTel = normTel(pending.telefon)
+
+    const row = pending.termin_id
+      ? clientSummary.appointments.find((a) => a.id === pending.termin_id)
+      : clientSummary.appointments.find((a) => {
+          const sameTime = normDatum(a.datum_vrijeme) === normDatum(pending.datum_vrijeme)
+          const sameIme = (a.ime_klijenta || '').trim() === pending.ime.trim()
+          const aTel = normTel((a.telefon_klijenta || '').trim())
+          const samePhone = !aTel || aTel === pendTel
+          return sameTime && sameIme && samePhone
+        })
+
+    if (!row?.status) return
+    const nextStored = storageTerminStatus(row.status)
+    if (nextStored === storageTerminStatus(pending.status)) return
+
+    const nextNotif = { ...pending, status: nextStored }
+    bookingNotifRef.current = nextNotif
+    setBookingNotif(nextNotif)
+    sacuvajBookingNotif(nextNotif)
+  }, [clientSummary, sacuvajBookingNotif, bookingNotif])
 
   if (pageLoading) return (
     <div style={{ background: '#0a0a0a', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
@@ -570,12 +648,11 @@ export default function SalonLanding() {
   const locationQuery = salon ? buildLocationQuery(salon) : ''
   const mapsUrl = locationQuery ? buildMapsEmbedSrc(locationQuery) : ''
   const openInMapsUrl = locationQuery ? mapsSearchUrl(locationQuery) : ''
-  const statusLabel =
-    bookingNotif?.status === 'potvrđen'
-      ? 'Termin je potvrđen'
-      : bookingNotif?.status === 'otkazan'
-        ? 'Termin je otkazan'
-        : 'Termin čeka potvrdu'
+  const statusLabel = isTerminPotvrdjen(bookingNotif?.status)
+    ? 'Termin je potvrđen'
+    : isTerminOtkazan(bookingNotif?.status)
+      ? 'Termin je otkazan'
+      : 'Termin čeka potvrdu'
 
   const handleZakazivanje = async () => {
     if (klijentUlogovan && clientSummary?.booking_blocked) {
@@ -631,8 +708,11 @@ export default function SalonLanding() {
         status: 'ceka',
         ...(typeof data.termin_id === 'string' && data.termin_id ? { termin_id: data.termin_id } : {}),
       }
+      bookingNotifRef.current = nextNotif
       setBookingNotif(nextNotif)
       sacuvajBookingNotif(nextNotif)
+      window.setTimeout(() => void provjeriStatusTermina(), 700)
+      window.setTimeout(() => void provjeriStatusTermina(), 4000)
       setUspjeh(true)
       setShowForma(false)
       setForma({ ime: '', telefon: '', datum: '', vrijeme: '', napomena: '' })
@@ -861,7 +941,7 @@ export default function SalonLanding() {
           >
             <h3 style={{ fontSize: '17px', fontWeight: 600, color: '#f5f0e8', marginBottom: '10px' }}>Tvoji podaci</h3>
             <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.55)', lineHeight: 1.6, marginBottom: '16px' }}>
-              Prijavite se ili registrujte kao kupac (zlatna ikonica profila u meniju) da biste videli podatke, obaveštenja o terminima i lojalnost za ovaj salon.
+              Prijavite se ili registrujte kao kupac (zlatna ikonica profila u meniju) da biste videli podatke, obaveštenja o terminima i lojalnost za ovaj salon. Isti nalog možete koristiti i kod drugih salona; program lojalnosti i broj dolazaka uvek su vezani samo za salon u kom zakazujete.
             </p>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <Link
@@ -1041,9 +1121,12 @@ export default function SalonLanding() {
               ) : clientMeError ? (
                 <div style={{ fontSize: '13px', color: 'rgba(245,240,232,.75)', lineHeight: 1.55 }}>
                   <p style={{ marginBottom: '12px', color: '#ff8a8a' }}>{clientMeError}</p>
-                  {(clientMeError.includes('povezan') || clientMeError.includes('nije')) && (
+                  {(clientMeError.includes('povezan') ||
+                    clientMeError.includes('nije') ||
+                    clientMeError.includes('telefona') ||
+                    clientMeError.includes('profil')) && (
                     <p style={{ marginBottom: '12px', color: 'rgba(245,240,232,.55)' }}>
-                      Ako ste se tek prijavili, povežite broj telefona sa nalogom za ovaj salon (meni profila) ili zakazujte kao gost.
+                      Ako ste se tek prijavili, proverite da li su ime i telefon sačuvani u profilu kupca (meni profila), ili zakazujte kao gost.
                     </p>
                   )}
                   <button
@@ -1193,13 +1276,16 @@ export default function SalonLanding() {
                       <div style={{ fontSize: '22px', color: '#4caf81' }}>{clientSummary.stats.potvrdjeni}</div>
                     </div>
                     <div style={{ background: '#1a1a1a', border: `0.5px solid ${goldBorder}`, borderRadius: '12px', padding: '12px' }}>
-                      <div style={{ fontSize: '11px', color: 'rgba(245,240,232,.45)' }}>Lojalnost</div>
+                      <div style={{ fontSize: '11px', color: 'rgba(245,240,232,.45)' }}>Lojalnost (ovaj salon)</div>
                       <div style={{ fontSize: '22px', color: gold }}>{clientSummary.loyalty.progress_percent}%</div>
                     </div>
                   </div>
                   <div style={{ marginBottom: '14px', fontSize: '13px', color: 'rgba(245,240,232,.7)' }}>
                     Posete: {clientSummary.loyalty.visits_count} · Nagrada: {clientSummary.loyalty.reward_ready ? 'spremna' : 'nije spremna'}
                   </div>
+                  <p style={{ marginBottom: '14px', fontSize: '11px', color: 'rgba(245,240,232,.38)', lineHeight: 1.5 }}>
+                    Napredak važi samo za {salon?.naziv ?? 'ovaj salon'}. Kod drugog salona imate poseban brojač, iako je nalog isti.
+                  </p>
                   <div style={{ marginBottom: '10px', fontSize: '13px', fontWeight: 500, color: 'rgba(245,240,232,.85)' }}>Moji termini</div>
                   {terminEdit ? (
                     <div
@@ -1333,11 +1419,11 @@ export default function SalonLanding() {
                     clientSummary.appointments.map((termin) => {
                       const uBuducnosti = new Date(termin.datum_vrijeme).getTime() > Date.now()
                       const mozeUpravljati =
-                        uBuducnosti && termin.status !== 'otkazan' && !clientSummary.booking_blocked
+                        uBuducnosti && !isTerminOtkazan(termin.status) && !clientSummary.booking_blocked
                       const statusBoja =
-                        termin.status === 'potvrđen'
+                        isTerminPotvrdjen(termin.status)
                           ? '#4caf81'
-                          : termin.status === 'otkazan'
+                          : isTerminOtkazan(termin.status)
                             ? '#e07a7a'
                             : gold
                       return (
@@ -1446,16 +1532,15 @@ export default function SalonLanding() {
           <div
             style={{
               marginTop: '24px',
-              background:
-                bookingNotif.status === 'potvrđen'
-                  ? 'rgba(50,200,100,.1)'
-                  : bookingNotif.status === 'otkazan'
-                    ? 'rgba(200,80,80,.1)'
-                    : goldFaint,
+              background: isTerminPotvrdjen(bookingNotif.status)
+                ? 'rgba(50,200,100,.1)'
+                : isTerminOtkazan(bookingNotif.status)
+                  ? 'rgba(200,80,80,.1)'
+                  : goldFaint,
               border: `0.5px solid ${
-                bookingNotif.status === 'potvrđen'
+                isTerminPotvrdjen(bookingNotif.status)
                   ? 'rgba(50,200,100,.35)'
-                  : bookingNotif.status === 'otkazan'
+                  : isTerminOtkazan(bookingNotif.status)
                     ? 'rgba(220,100,100,.35)'
                     : goldBorder
               }`,
@@ -1475,12 +1560,11 @@ export default function SalonLanding() {
                   style={{
                     fontSize: '14px',
                     fontWeight: 600,
-                    color:
-                      bookingNotif.status === 'potvrđen'
-                        ? '#4caf81'
-                        : bookingNotif.status === 'otkazan'
-                          ? '#e07a7a'
-                          : gold,
+                    color: isTerminPotvrdjen(bookingNotif.status)
+                      ? '#4caf81'
+                      : isTerminOtkazan(bookingNotif.status)
+                        ? '#e07a7a'
+                        : gold,
                   }}
                 >
                   {statusLabel}
@@ -1488,7 +1572,7 @@ export default function SalonLanding() {
                 <div style={{ fontSize: '12px', color: 'rgba(245,240,232,.45)' }}>Za broj {bookingNotif.telefon}</div>
               </div>
             </div>
-            {bookingNotif.status !== 'otkazan' ? (
+            {!isTerminOtkazan(bookingNotif.status) && !isTerminPotvrdjen(bookingNotif.status) ? (
               <button
                 type="button"
                 onClick={() => void provjeriStatusTermina()}
@@ -1683,7 +1767,9 @@ export default function SalonLanding() {
               <div style={{ width: '48px', height: '48px', background: goldFaint, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>🎁</div>
               <div>
                 <h3 style={{ fontSize: '18px', fontWeight: 500, color: '#f5f0e8', marginBottom: '4px' }}>Program lojalnosti</h3>
-                <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.45)' }}>Nagrađujemo naše vjerne klijente</p>
+                <p style={{ fontSize: '13px', color: 'rgba(245,240,232,.45)', lineHeight: 1.5 }}>
+                  Nagrađujemo verne klijente u ovom salonu. Jedan nalog možete koristiti svuda; pečati i nagrade ovde ne prelaze na druge salone.
+                </p>
               </div>
             </div>
             <div style={{ background: goldFaint, borderRadius: '12px', padding: '16px' }}>

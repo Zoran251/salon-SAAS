@@ -8,7 +8,7 @@ begin;
 create table if not exists public.salon_clients (
   id uuid primary key default gen_random_uuid(),
   salon_id uuid not null references public.saloni(id) on delete cascade,
-  auth_user_id uuid unique null,
+  auth_user_id uuid null,
   ime text not null,
   telefon text not null,
   email text null,
@@ -18,6 +18,10 @@ create table if not exists public.salon_clients (
 
 create unique index if not exists salon_clients_salon_phone_uq
   on public.salon_clients (salon_id, telefon);
+
+create unique index if not exists salon_clients_salon_auth_uq
+  on public.salon_clients (salon_id, auth_user_id)
+  where auth_user_id is not null;
 
 -- 2) Connect appointments to clients
 alter table public.termini

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { ensureSalonClientForCustomer } from '@/lib/ensure-customer-salon-client'
 import { getPublicSupabaseEnv } from '@/lib/env-supabase'
 import { SUPABASE_PUBLIC_ENV_MISSING } from '@/lib/supabase-service-role-hint'
 import { getServerSupabaseClient, hasServiceRoleKey } from '@/lib/server-supabase'
@@ -66,17 +67,11 @@ export async function DELETE(request: Request, context: RouteCtx) {
       return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
     }
 
-    const { data: clientData, error: clientError } = await userClient
-      .from('salon_clients')
-      .select('id, ime, telefon')
-      .eq('salon_id', salonId)
-      .eq('auth_user_id', userData.user.id)
-      .maybeSingle()
-
-    if (clientError) return NextResponse.json({ error: clientError.message }, { status: 500 })
-    if (!clientData) {
-      return NextResponse.json({ error: 'Klijent nije povezan sa ovim salonom.' }, { status: 404 })
+    const ensured = await ensureSalonClientForCustomer(userClient, salonId, userData.user)
+    if (!ensured.ok) {
+      return NextResponse.json({ error: ensured.error }, { status: ensured.status })
     }
+    const clientData = ensured.client
 
     const service = getServerSupabaseClient()
     if (!service) {
@@ -201,17 +196,11 @@ export async function PATCH(request: Request, context: RouteCtx) {
       return NextResponse.json({ error: SUPABASE_PUBLIC_ENV_MISSING }, { status: 500 })
     }
 
-    const { data: clientData, error: clientError } = await userClient
-      .from('salon_clients')
-      .select('id')
-      .eq('salon_id', salonId)
-      .eq('auth_user_id', userData.user.id)
-      .maybeSingle()
-
-    if (clientError) return NextResponse.json({ error: clientError.message }, { status: 500 })
-    if (!clientData) {
-      return NextResponse.json({ error: 'Klijent nije povezan sa ovim salonom.' }, { status: 404 })
+    const ensured = await ensureSalonClientForCustomer(userClient, salonId, userData.user)
+    if (!ensured.ok) {
+      return NextResponse.json({ error: ensured.error }, { status: ensured.status })
     }
+    const clientData = ensured.client
 
     const body = (await request.json()) as {
       datum_vrijeme?: string
