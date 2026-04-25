@@ -7,16 +7,9 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { authPasswordViaApi } from '@/lib/auth-via-api'
 import { APP_ROLE_KEY, getAppRole } from '@/lib/user-role'
 import { getSafeNextPath, parseSalonSlugFromPath } from '@/lib/safe-next-path'
+import { formatAuthError } from '@/lib/format-auth-error'
 import { supabase } from '@/lib/supabase'
 import { waitForClientSession } from '@/lib/wait-client-session'
-
-const formatAuthError = (message: string) => {
-  const m = message.toLowerCase()
-  if (m.includes('failed to fetch') || m.includes('networkerror')) {
-    return 'Ne možemo se povezati s bazom. Provjeri internet ili env na serveru.'
-  }
-  return message
-}
 
 async function linkKupacNaSalon(params: {
   salonId: string

@@ -5,21 +5,8 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { authPasswordViaApi } from '@/lib/auth-via-api'
 import { getSafeNextPath } from '@/lib/safe-next-path'
+import { formatAuthError } from '@/lib/format-auth-error'
 import { waitForClientSession } from '@/lib/wait-client-session'
-
-const formatAuthError = (message: string) => {
-  const m = message.toLowerCase()
-  if (m.includes('failed to fetch') || m.includes('networkerror')) {
-    return 'Ne možemo se povezati s bazom. Provjeri internet ili env na serveru.'
-  }
-  if (m.includes('email not confirmed') || m.includes('not confirmed')) {
-    return 'Potvrdi email (link iz pisma) prije prijave.'
-  }
-  if (m.includes('invalid login') || m.includes('invalid credentials')) {
-    return 'Pogrešan email ili lozinka.'
-  }
-  return message
-}
 
 function KupacPrijavaForm() {
   const router = useRouter()

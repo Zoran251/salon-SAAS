@@ -1,4 +1,5 @@
 import type { Session } from '@supabase/supabase-js'
+import { isInvalidRefreshTokenError } from '@/lib/auth-refresh-errors'
 import { supabase } from '@/lib/supabase'
 
 /** Podrazumevano ~6.4s: posle osvežavanja stranice localStorage + Supabase često kasne na sporijim uređajima. */
@@ -13,10 +14,23 @@ export async function waitForClientSession(
   maxAttempts = AUTH_SESSION_WAIT_ATTEMPTS,
   delayMs = AUTH_SESSION_WAIT_MS
 ): Promise<Session | null> {
+  const finish = async (): Promise<Session | null> => {
+    const { data, error } = await supabase.auth.getSession()
+    if (error && isInvalidRefreshTokenError(error.message)) {
+      await supabase.auth.signOut({ scope: 'local' })
+      return null
+    }
+    return data.session
+  }
+
   for (let i = 0; i < maxAttempts; i++) {
-    const { data } = await supabase.auth.getSession()
+    const { data, error } = await supabase.auth.getSession()
+    if (error && isInvalidRefreshTokenError(error.message)) {
+      await supabase.auth.signOut({ scope: 'local' })
+      return null
+    }
     if (data.session) return data.session
     await new Promise((r) => setTimeout(r, delayMs))
   }
-  return (await supabase.auth.getSession()).data.session
+  return finish()
 }

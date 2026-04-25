@@ -2,21 +2,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { authPasswordViaApi } from '@/lib/auth-via-api'
+import { formatAuthError } from '@/lib/format-auth-error'
 import { waitForClientSession } from '@/lib/wait-client-session'
-
-const formatAuthError = (message: string) => {
-  const m = message.toLowerCase()
-  if (m.includes('failed to fetch') || m.includes('networkerror')) {
-    return 'Ne možemo se povezati s bazom. U Vercel dodaj NEXT_PUBLIC_SUPABASE_URL i NEXT_PUBLIC_SUPABASE_ANON_KEY, pa Redeploy.'
-  }
-  if (m.includes('email not confirmed') || m.includes('not confirmed')) {
-    return 'Potvrdi email (link iz pisma) prije prijave.'
-  }
-  if (m.includes('invalid login') || m.includes('invalid credentials')) {
-    return 'Pogrešan email ili lozinka.'
-  }
-  return message
-}
 
 export default function Login() {
   const [loading, setLoading] = useState(false)
@@ -33,7 +20,7 @@ export default function Login() {
     setLoading(true)
     const r = await authPasswordViaApi('signin', forma.email.trim(), forma.lozinka)
     if (r.error) {
-      setGreska(formatAuthError(r.error))
+      setGreska(formatAuthError(r.error, 'salon-login'))
       setLoading(false)
       return
     }

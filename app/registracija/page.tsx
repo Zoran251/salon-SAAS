@@ -3,6 +3,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { authPasswordViaApi } from '@/lib/auth-via-api'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
+import { formatAuthError } from '@/lib/format-auth-error'
 import { buildSalonSlug, fallbackSalonSlug } from '@/lib/slug'
 
 const tipovi = ['Frizerski salon', 'Kozmetički salon', 'Salon za nokte', 'Spa / Wellness', 'Barbershop', 'Drugo']
@@ -18,14 +19,6 @@ export default function Registracija() {
     setGreska('')
   }
 
-  const formatAuthError = (message: string) => {
-    const m = message.toLowerCase()
-    if (m.includes('failed to fetch') || m.includes('networkerror')) {
-      return 'Ne možemo se povezati s bazom (mrežna greška). Na production sajtu u Vercel → Settings → Environment Variables moraju biti NEXT_PUBLIC_SUPABASE_URL i NEXT_PUBLIC_SUPABASE_ANON_KEY (iste vrijednosti kao u .env.local), zatim Redeploy. Bez toga sajt šalje zahtjeve na pogrešan adresu.'
-    }
-    return message
-  }
-
   const handleSubmit = async () => {
     setLoading(true)
     setGreska('')
@@ -33,7 +26,7 @@ export default function Registracija() {
       const email = forma.email.trim()
       const r = await authPasswordViaApi('signup', email, forma.lozinka, { app_role: 'salon_owner' })
       if (r.error) {
-        setGreska(formatAuthError(r.error))
+        setGreska(formatAuthError(r.error, 'salon-register'))
         setLoading(false)
         return
       }
@@ -63,6 +56,7 @@ export default function Registracija() {
             formatAuthError(
               j2.error ||
                 'Kreiranje salona nije uspjelo. Isključi obaveznu potvrdu emaila u Supabase (Authentication) ili dodaj SUPABASE_SERVICE_ROLE_KEY na Vercel.',
+              'salon-register',
             ),
           )
           setLoading(false)
@@ -103,7 +97,7 @@ export default function Registracija() {
           .maybeSingle()
 
         if (slugCheckError) {
-          setGreska(formatAuthError(slugCheckError.message))
+          setGreska(formatAuthError(slugCheckError.message, 'salon-register'))
           setLoading(false)
           return
         }
@@ -124,7 +118,7 @@ export default function Registracija() {
         aktivan: true,
       })
       if (salonError) {
-        let msg = formatAuthError(salonError.message)
+        let msg = formatAuthError(salonError.message, 'salon-register')
         if (/row-level security|rls|permission denied|policy|42501/i.test(salonError.message)) {
           msg =
             'Baza je odbila kreiranje salona (prava pristupa). U Supabase Authentication isključi "Confirm email" za test ili prilagodi RLS za tabelu saloni.'
@@ -137,7 +131,7 @@ export default function Registracija() {
       setKorak(3)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Nepoznata greška'
-      setGreska(formatAuthError(msg))
+      setGreska(formatAuthError(msg, 'salon-register'))
     }
     setLoading(false)
   }

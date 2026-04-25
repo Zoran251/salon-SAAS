@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AuthSessionRecovery } from "@/app/auth-session-recovery";
 import { getGoogleMapsEmbedApiKey } from "@/lib/env-google-maps";
 import { getPublicSupabaseEnv } from "@/lib/env-supabase";
 import "./globals.css";
@@ -42,7 +43,10 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <AuthSessionRecovery />
+        {children}
+      </body>
     </html>
   );
 }
