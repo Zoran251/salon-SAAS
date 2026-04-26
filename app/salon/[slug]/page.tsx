@@ -556,7 +556,8 @@ export default function SalonLanding() {
       void provjeriStatusTermina()
     }, 5000)
 
-    let summaryPoll: ReturnType<typeof window.setInterval> | undefined
+    /** U browseru setInterval vraća number; NodeJS.Timeout iz @types/node zbunjuje tsc na Vercelu. */
+    let summaryPoll: number | undefined
     if (klijentUlogovan) {
       void ucitajClientSummary({ silent: true })
       summaryPoll = window.setInterval(() => void ucitajClientSummary({ silent: true }), 6000)
