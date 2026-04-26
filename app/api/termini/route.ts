@@ -131,7 +131,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: rlsHint
-            ? 'RLS blokira javno zakazivanje. Dodaj policy za anon INSERT na tabeli termini ili postavi SUPABASE_SERVICE_ROLE_KEY.'
+            ? 'RLS blokira javno zakazivanje. Uradi jedno od dva: (1) Vercel → Environment Variables → dodaj SUPABASE_SERVICE_ROLE_KEY (Project Settings → API → service_role) pa Redeploy; ili (2) u Supabase SQL Editor pokreni migraciju db/migrations/2026-05-03_ensure_anon_insert_termini.sql (ili 2026-04-14_client_portal.sql ako još nisi).'
             : error.message,
         },
         { status: 500 }

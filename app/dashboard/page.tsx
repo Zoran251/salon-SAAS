@@ -8,6 +8,31 @@ import { buildSalonSlug, fallbackSalonSlug } from '@/lib/slug'
 import { getAppRole } from '@/lib/user-role'
 import { getPublicSiteBase } from '@/lib/public-site-url'
 
+/** FK na saloni(id) — čest problem kad u bazi nema reda za auth.uid(). */
+function formatSalonFkErrorMessage(message: string | undefined): string {
+  if (!message) return 'Operacija nije uspjela.'
+  const m = message.toLowerCase()
+  if (m.includes('foreign key') && (m.includes('salon_id') || m.includes('saloni'))) {
+    return (
+      'U tabeli saloni nema reda čiji id odgovara vašem nalogu (usluge/lager/termini moraju biti vezani na salon). ' +
+      'Dovršite registraciju (/registracija) ili u Supabase SQL Editor dodajte jedan red u public.saloni gdje je id = uuid vlasnika iz Authentication.'
+    )
+  }
+  return message
+}
+
+/** Naziv usluge na terminu bez PostgREST embed-a (manje konflikata sa RLS / status kodovima). */
+function terminiSaUslugaNazivom(termini: any[] | null, uslugeLista: any[] | null): any[] {
+  const map = new Map((uslugeLista || []).map((u: { id: string }) => [u.id, u]))
+  return (termini || []).map((t) => ({
+    ...t,
+    usluge:
+      t.usluga_id && map.has(t.usluga_id)
+        ? { naziv: (map.get(t.usluga_id) as { naziv?: string | null }).naziv ?? null }
+        : null,
+  }))
+}
+
 const navItems = [
   { id: 'pregled', icon: '🏠', label: 'Pregled' },
   { id: 'profil', icon: '👤', label: 'Profil' },
@@ -45,6 +70,8 @@ export default function Dashboard() {
   const [showNoviLager, setShowNoviLager] = useState(false)
   const [uslugaGreska, setUslugaGreska] = useState('')
   const [uslugaLoading, setUslugaLoading] = useState(false)
+  const [lagerGreska, setLagerGreska] = useState('')
+  const [terminiPotvrdaGreska, setTerminiPotvrdaGreska] = useState('')
   const [sauvano, setSacuvano] = useState('')
   const [profil, setProfil] = useState({
     naziv: '', opis: '', telefon: '', adresa: '', grad: '',
@@ -169,31 +196,40 @@ export default function Dashboard() {
       })
 
       // Učitaj usluge
-      const { data: uslugeData } = await supabase
+      const { data: uslugeData, error: uslugeErr } = await supabase
         .from('usluge')
         .select('*')
         .eq('salon_id', userId)
-        .order('created_at')
+        .order('created_at', { ascending: true })
 
+      if (uslugeErr) {
+        console.error('[dashboard] Usluge:', uslugeErr.message, uslugeErr)
+      }
       setUsluge(uslugeData || [])
 
       // Učitaj lager
-      const { data: lagerData } = await supabase
+      const { data: lagerData, error: lagerErr } = await supabase
         .from('lager')
         .select('*')
         .eq('salon_id', userId)
-        .order('created_at')
+        .order('created_at', { ascending: true })
 
+      if (lagerErr) {
+        console.error('[dashboard] Lager:', lagerErr.message, lagerErr)
+      }
       setLager(lagerData || [])
 
-      // Učitaj termine
-      const { data: terminiData } = await supabase
+      // Učitaj termine (bez embed usluge — spajamo u memoriji posle učitanih usluga)
+      const { data: terminiData, error: terminiErr } = await supabase
         .from('termini')
-        .select('*, usluge(naziv)')
+        .select('*')
         .eq('salon_id', userId)
         .order('datum_vrijeme', { ascending: true })
 
-      setTermini(terminiData || [])
+      if (terminiErr) {
+        console.error('[dashboard] Termini:', terminiErr.message, terminiErr)
+      }
+      setTermini(terminiSaUslugaNazivom(terminiData, uslugeData || []))
 
       const { data: crnaListaData, error: crnaListaErr } = await supabase
         .from('kupci_crna_lista')
@@ -352,8 +388,13 @@ export default function Dashboard() {
         return
       }
 
+      if (!salon?.id) {
+        setUslugaGreska('Salon nije učitan. Osvježite stranicu ili ponovo se prijavite.')
+        return
+      }
+
       const { data, error } = await supabase.from('usluge').insert({
-        salon_id: user.id,
+        salon_id: salon.id,
         naziv,
         cijena,
         trajanje,
@@ -362,7 +403,7 @@ export default function Dashboard() {
       }).select().single()
 
       if (error || !data) {
-        setUslugaGreska(error?.message || 'Neuspješno dodavanje usluge.')
+        setUslugaGreska(formatSalonFkErrorMessage(error?.message) || 'Neuspješno dodavanje usluge.')
         return
       }
 
@@ -383,19 +424,28 @@ export default function Dashboard() {
 
   const dodajLager = async () => {
     if (!noviLager.naziv || !noviLager.kolicina) return
+    setLagerGreska('')
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
+    if (!salon?.id) {
+      setLagerGreska('Salon nije učitan. Osvježite stranicu.')
+      return
+    }
     const kol = parseInt(noviLager.kolicina)
     const min = parseInt(noviLager.minimum) || 0
     const { data, error } = await supabase.from('lager').insert({
-      salon_id: user.id,
+      salon_id: salon.id,
       naziv: noviLager.naziv,
       kategorija: noviLager.kategorija || 'Ostalo',
       kolicina: kol,
       minimum: min,
       jedinica: noviLager.jedinica
     }).select().single()
-    if (!error && data) {
+    if (error) {
+      setLagerGreska(formatSalonFkErrorMessage(error.message))
+      return
+    }
+    if (data) {
       setLager([...lager, data])
       setNoviLager({ naziv: '', kategorija: '', kolicina: '', minimum: '', jedinica: 'kom' })
       setShowNoviLager(false)
@@ -408,8 +458,32 @@ export default function Dashboard() {
   }
 
   const potvrdiTermin = async (id: string) => {
-    await supabase.from('termini').update({ status: 'potvrđen' }).eq('id', id)
-    setTermini(termini.map(t => t.id === id ? { ...t, status: 'potvrđen' } : t))
+    setTerminiPotvrdaGreska('')
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user?.id) {
+      setTerminiPotvrdaGreska('Sesija je istekla. Prijavi se ponovo.')
+      return
+    }
+    const sid = salon?.id ?? user.id
+    const { error } = await supabase
+      .from('termini')
+      .update({ status: 'potvrđen' })
+      .eq('id', id)
+      .eq('salon_id', sid)
+    if (error) {
+      setTerminiPotvrdaGreska(formatSalonFkErrorMessage(error.message))
+      return
+    }
+    const { data: refreshed, error: refErr } = await supabase
+      .from('termini')
+      .select('*')
+      .eq('salon_id', sid)
+      .order('datum_vrijeme', { ascending: true })
+    if (refErr) {
+      setTermini(terminiSaUslugaNazivom(termini.map((t) => (t.id === id ? { ...t, status: 'potvrđen' } : t)), usluge))
+      return
+    }
+    if (refreshed) setTermini(terminiSaUslugaNazivom(refreshed, usluge))
   }
 
   const sacuvajLojalnost = async () => {
@@ -734,6 +808,11 @@ export default function Dashboard() {
       {showNoviLager ? (
         <div style={cardStyle}>
           <h3 style={{ fontSize: '14px', fontWeight: 500, color: text, marginBottom: '16px' }}>Novi artikal</h3>
+          {lagerGreska && (
+            <div style={{ background: 'rgba(220,50,50,.1)', border: '0.5px solid rgba(220,50,50,.3)', borderRadius: '10px', padding: '10px 12px', marginBottom: '12px', fontSize: '12px', color: '#ff6b6b' }}>
+              ⚠️ {lagerGreska}
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '12px', marginBottom: '14px' }}>
             <div><label style={labelStyle}>NAZIV</label><input style={inputStyle} placeholder="Farba #5" value={noviLager.naziv} onChange={e => setNoviLager({ ...noviLager, naziv: e.target.value })} /></div>
             <div><label style={labelStyle}>KATEGORIJA</label><input style={inputStyle} placeholder="Boje" value={noviLager.kategorija} onChange={e => setNoviLager({ ...noviLager, kategorija: e.target.value })} /></div>
@@ -748,11 +827,17 @@ export default function Dashboard() {
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button style={btnGold} onClick={dodajLager}>Dodaj artikal</button>
-            <button style={btnOutline} onClick={() => setShowNoviLager(false)}>Odustani</button>
+            <button style={btnOutline} onClick={() => { setShowNoviLager(false); setLagerGreska('') }}>Odustani</button>
           </div>
         </div>
       ) : (
-        <button style={{ ...btnGold, padding: '14px', borderRadius: '12px', fontSize: '14px', width: '100%' }} onClick={() => setShowNoviLager(true)}>
+        <button
+          style={{ ...btnGold, padding: '14px', borderRadius: '12px', fontSize: '14px', width: '100%' }}
+          onClick={() => {
+            setShowNoviLager(true)
+            setLagerGreska('')
+          }}
+        >
           + Dodaj artikal u lager
         </button>
       )}
@@ -763,10 +848,15 @@ export default function Dashboard() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <div style={cardStyle}>
         <h3 style={{ fontSize: '15px', fontWeight: 500, color: text, marginBottom: '16px' }}>Svi termini</h3>
+        {terminiPotvrdaGreska && (
+          <div style={{ background: 'rgba(220,50,50,.1)', border: '0.5px solid rgba(220,50,50,.3)', borderRadius: '10px', padding: '10px 12px', marginBottom: '14px', fontSize: '12px', color: '#ff6b6b' }}>
+            ⚠️ {terminiPotvrdaGreska}
+          </div>
+        )}
         {termini.length === 0
           ? <p style={{ fontSize: '13px', color: muted }}>Nema zakazanih termina.</p>
           : termini.map((t, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: i < termini.length - 1 ? `0.5px solid rgba(255,255,255,.06)` : 'none', gap: '12px', flexWrap: 'wrap' }}>
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: i < termini.length - 1 ? `0.5px solid rgba(255,255,255,.06)` : 'none', gap: '12px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div style={{ width: '44px', height: '44px', background: goldFaint, borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '11px', fontWeight: 600, color: gold, textAlign: 'center' }}>
                   {new Date(t.datum_vrijeme).toLocaleTimeString('sr', { hour: '2-digit', minute: '2-digit' })}
